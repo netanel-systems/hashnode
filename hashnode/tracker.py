@@ -146,8 +146,11 @@ class GrowthTracker:
         """Append a new follower snapshot, bounded to max_snapshots entries.
 
         Keeps last max_snapshots entries to prevent unbounded growth.
-        Default 365 = ~1 year of daily snapshots.
+        Default 365 = ~1 year of daily snapshots. Uses atomic write.
         """
+        import os
+        import tempfile
+
         path = self.data_dir / "follower_snapshots.jsonl"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         entry = {
@@ -171,11 +174,26 @@ class GrowthTracker:
             lines = lines[-max_snapshots:]
             logger.info("Trimmed follower snapshots: kept last %d entries.", max_snapshots)
 
-        path.write_text("\n".join(lines) + "\n")
+        # Atomic write
+        content = "\n".join(lines) + "\n"
+        fd, tmp_path = tempfile.mkstemp(
+            dir=path.parent, suffix=".tmp", prefix=".snapshots_",
+        )
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(content)
+            os.replace(tmp_path, path)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     def _save_weekly_report(self, report: dict) -> None:
-        """Save the weekly report to disk."""
+        """Save the weekly report to disk. Uses atomic write."""
+        from hashnode.storage import _atomic_write_json
+
         path = self.data_dir / "weekly_report.json"
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        with open(path, "w") as f:
-            json.dump(report, f, indent=2)
+        _atomic_write_json(path, report)
