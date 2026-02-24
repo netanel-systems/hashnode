@@ -398,8 +398,8 @@ class HashnodeClient:
         Provide either user_id or username (not both).
         Idempotent — calling on already-followed user unfollows.
         """
-        if not user_id and not username:
-            raise HashnodeError("Must provide either user_id or username")
+        if bool(user_id) == bool(username):
+            raise HashnodeError("Must provide exactly one of user_id or username, not both or neither")
 
         query = """
         mutation($id: ID, $username: String) {

@@ -9,8 +9,10 @@
 
 - **API:** `https://gql.hashnode.com/` (POST, GraphQL)
 - **Auth:** PAT via `Authorization` header (no Bearer prefix)
+- **Auth scope:** Mutations (likePost, addComment, publishPost, etc.) require PAT. Queries (feed, post, tag) are public but PAT is still sent for consistency.
 - **Rate limit:** 500 req/min authenticated
-- **Tags:** Must be `{slug: "python"}` objects, not strings
+- **Tags in feed filter:** Must be ObjectId strings (resolve via `get_tag(slug)` first), NOT `{slug: "python"}` objects
+- **Tags in publishPost:** Must be `[{slug: "python"}]` objects
 
 ## Modules
 

@@ -57,8 +57,11 @@ class CommentEngine:
                 for line in f:
                     line = line.strip()
                     if line:
-                        entries.append(json.loads(line))
-        except (json.JSONDecodeError, OSError) as e:
+                        try:
+                            entries.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            logger.warning("Skipping malformed line in comment_history.jsonl: %s", line[:50])
+        except OSError as e:
             logger.warning("Failed to load comment_history.jsonl: %s", e)
         return entries
 

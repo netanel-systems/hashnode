@@ -23,6 +23,9 @@ def load_json_ids(path: Path, key: str = "post_ids") -> set[str]:
     try:
         with open(path) as f:
             data = json.load(f)
+        if not isinstance(data, dict):
+            logger.warning("Unexpected JSON format in %s", path.name)
+            return set()
         return set(str(id_) for id_ in data.get(key, []))
     except (json.JSONDecodeError, OSError) as e:
         logger.warning("Failed to load %s: %s", path.name, e)

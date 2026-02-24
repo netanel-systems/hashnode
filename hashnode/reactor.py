@@ -114,7 +114,7 @@ class ReactionEngine:
         try:
             reacted_ids = self.load_reacted_ids()
             commented_ids = self.load_commented_ids()
-            max_reactions = min(self.config.max_reactions_per_run, 20)
+            max_reactions = self.config.max_reactions_per_run
 
             # Collect candidates from multiple feed types
             seen_ids: set[str] = set()

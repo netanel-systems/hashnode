@@ -65,7 +65,7 @@ class HashnodeConfig(BaseSettings):
 
     # --- Paths ---
     project_root: Path = Field(
-        default_factory=lambda: Path.home() / "netanel" / "teams" / "hashnode",
+        default_factory=Path.cwd,
     )
     data_dir: Path = Field(default_factory=lambda: Path("data"))
 

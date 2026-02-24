@@ -134,15 +134,17 @@ class ArticlePublisher:
         return result
 
     def _already_published_today(self) -> bool:
-        """Check if we already published today."""
-        path = self.data_dir / ".last_publish_date"
-        if not path.exists():
-            return False
-        try:
-            last_date = path.read_text().strip()
-            return last_date == date.today().isoformat()
-        except OSError:
-            return False
+        """Check if we already published the daily limit today.
+
+        Counts actual articles published today vs max_articles_per_day config.
+        """
+        today = date.today().isoformat()
+        history = self._load_published_history()
+        count_today = sum(
+            1 for entry in history
+            if entry.get("published_at", "").startswith(today)
+        )
+        return count_today >= self.config.max_articles_per_day
 
     def _update_last_publish_date(self) -> None:
         """Record today as last publish date."""

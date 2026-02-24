@@ -13,7 +13,7 @@ Fallback: static PNG if GIF generation fails.
 import logging
 import math
 import random
-from io import BytesIO
+import re
 from pathlib import Path
 from textwrap import wrap
 
@@ -84,8 +84,12 @@ class CoverGenerator:
         Returns:
             Path to the generated GIF file
         """
-        filename = f"{slug or 'cover'}.gif"
+        safe_slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", slug or "cover").strip("-") or "cover"
+        filename = f"{safe_slug}.gif"
         output_path = self.output_dir / filename
+        # Prevent path traversal
+        if self.output_dir.resolve() not in output_path.resolve().parents and output_path.resolve().parent != self.output_dir.resolve():
+            raise ValueError(f"Path traversal detected: {filename}")
 
         try:
             if style == "matrix":
@@ -132,8 +136,9 @@ class CoverGenerator:
         font_title = _get_font(72, bold=True)
         font_subtitle = _get_font(28)
 
-        # Wrap title to fit
+        # Wrap title to fit, limit to 3 lines
         wrapped_title = wrap(title, width=28)
+        display_lines = wrapped_title[:3]
 
         for i in range(num_frames):
             img = Image.new("RGB", (WIDTH, HEIGHT), NEON_COLORS["bg"])
@@ -152,8 +157,8 @@ class CoverGenerator:
             glow_intensity = 0.6 + 0.4 * math.sin(2 * math.pi * i / num_frames)
 
             # Draw title text with glow
-            y_start = HEIGHT // 2 - len(wrapped_title) * 45
-            for line_idx, line in enumerate(wrapped_title[:3]):  # Max 3 lines
+            y_start = HEIGHT // 2 - len(display_lines) * 45
+            for line_idx, line in enumerate(display_lines):
                 bbox = draw.textbbox((0, 0), line, font=font_title)
                 text_width = bbox[2] - bbox[0]
                 x = (WIDTH - text_width) // 2
