@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hashnode-growth"
+version = "0.1.0"
+description = "Hashnode growth engine — content publishing + engagement automation via GraphQL API"
+requires-python = ">=3.12"
+dependencies = [
+    "requests>=2.31",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "Pillow>=10.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["hashnode*"]
+
+[project.optional-dependencies]
+gif = [
+    "pycairo>=1.25",
+    "pygifsicle>=1.1",
+]

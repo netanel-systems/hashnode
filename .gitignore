@@ -13,6 +13,7 @@ data/reacted.json
 data/commented.json
 data/followed.json
 data/liked_comments.json
+data/published_history.json
 data/engagement_log.jsonl
 data/comment_history.jsonl
 data/follower_snapshots.jsonl
@@ -21,6 +22,9 @@ data/weekly_report.json
 data/.last_publish_date
 data/covers/
 data/logs/
+
+# Keep data dir tracked but empty
+!data/.gitkeep
 
 # IDE
 .idea/
