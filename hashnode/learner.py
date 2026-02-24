@@ -221,6 +221,61 @@ class GrowthLearner:
                 return learning.get("confidence", 0) >= 0.7
         return False
 
+    def analyze(self) -> int:
+        """Derive and persist patterns from engagement_log.jsonl.
+
+        Inspects tag performance and stores actionable learnings:
+        - Tags with zero engagement → 'skip <tag>' pattern (confidence 0.8)
+        - Tags with high engagement → positive pattern (confidence 0.9)
+
+        Returns the number of new learnings stored.
+        Called automatically after each reaction or comment cycle.
+        """
+        tag_stats = self.get_engagement_by_tag()
+        if not tag_stats:
+            logger.info("analyze: no engagement data yet — skipping.")
+            return 0
+
+        existing_learnings = self.load_learnings()
+        existing_patterns: set[str] = {
+            l.get("pattern", "").lower() for l in existing_learnings
+        }
+
+        stored = 0
+
+        # Identify zero-engagement tags → candidates for skipping
+        for tag, stats in tag_stats.items():
+            total = stats.get("total", 0)
+            skip_pattern = f"skip {tag} — zero engagement across all actions"
+            if total == 0 and skip_pattern.lower() not in existing_patterns:
+                self.store_learning(
+                    pattern=skip_pattern,
+                    confidence=0.8,
+                    evidence=f"Tag '{tag}' has 0 total engagement events in log.",
+                )
+                stored += 1
+
+        # Identify high-performing tags (total >= 5 engagements)
+        ENGAGEMENT_THRESHOLD = 5
+        for tag, stats in tag_stats.items():
+            total = stats.get("total", 0)
+            high_pattern = f"prioritize {tag} — high engagement tag"
+            if total >= ENGAGEMENT_THRESHOLD and high_pattern.lower() not in existing_patterns:
+                self.store_learning(
+                    pattern=high_pattern,
+                    confidence=0.9,
+                    evidence=(
+                        f"Tag '{tag}' has {total} engagement events: "
+                        f"reactions={stats.get('reactions', 0)}, "
+                        f"comments={stats.get('comments', 0)}, "
+                        f"follows={stats.get('follows', 0)}."
+                    ),
+                )
+                stored += 1
+
+        logger.info("analyze: stored %d new learnings.", stored)
+        return stored
+
     def generate_weekly_summary(self) -> dict:
         """Generate comprehensive weekly summary.
 

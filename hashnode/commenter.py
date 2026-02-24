@@ -15,6 +15,7 @@ from pathlib import Path
 
 from hashnode.client import HashnodeClient, HashnodeError
 from hashnode.config import HashnodeConfig
+from hashnode.learner import GrowthLearner
 from hashnode.storage import load_json_ids, save_json_ids
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ class CommentEngine:
     ) -> None:
         self.client = client
         self.config = config
+        self.learner = GrowthLearner(config)
         self.data_dir = config.abs_data_dir
 
     def load_commented_ids(self) -> set[str]:
@@ -64,6 +66,35 @@ class CommentEngine:
         except OSError as e:
             logger.warning("Failed to load comment_history.jsonl: %s", e)
         return entries
+
+    def get_prompt_insights(self, max_insights: int = 5) -> list[str]:
+        """Return learner insights for injection into the comment generation prompt.
+
+        Call this BEFORE generating a comment so the LLM has context on what
+        engagement patterns have worked historically.
+
+        Returns bullet-point strings or an empty list if learner is unavailable.
+        All errors are caught — never crashes the comment cycle.
+        """
+        try:
+            return self.learner.get_insights_for_prompt(max_insights=max_insights)
+        except Exception as e:
+            logger.warning("get_prompt_insights failed — returning empty: %s", e)
+            return []
+
+    def run_post_cycle_analysis(self) -> int:
+        """Trigger learner pattern extraction after a comment cycle completes.
+
+        Returns number of new learnings stored (0 on any error).
+        All errors are caught — never crashes the comment cycle.
+        """
+        try:
+            count = self.learner.analyze()
+            logger.info("Post-cycle learner analysis: %d new patterns.", count)
+            return count
+        except Exception as e:
+            logger.warning("run_post_cycle_analysis failed — non-fatal: %s", e)
+            return 0
 
     def post_comment(
         self,

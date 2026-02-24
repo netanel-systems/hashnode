@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 
 from hashnode.client import HashnodeClient, HashnodeError
 from hashnode.config import HashnodeConfig, load_config
+from hashnode.learner import GrowthLearner
 from hashnode.scout import ArticleScout
 from hashnode.storage import load_json_ids, save_json_ids
 
@@ -51,6 +52,7 @@ class ReactionEngine:
         self.config = config
         self.client = HashnodeClient(config)
         self.scout = ArticleScout(self.client, config)
+        self.learner = GrowthLearner(config)
         self.data_dir = config.abs_data_dir
 
     def load_reacted_ids(self) -> set[str]:
@@ -67,6 +69,49 @@ class ReactionEngine:
     def load_commented_ids(self) -> set[str]:
         """Load post IDs we already commented on (for filtering)."""
         return load_json_ids(self.data_dir / "commented.json")
+
+    def filter_learner_candidates(self, candidates: list[dict]) -> list[dict]:
+        """Filter out articles whose tags are marked skip by the learner.
+
+        Checks every tag slug on each article. If ALL tags are skip-listed,
+        the article is dropped. If any tag is not skip-listed, it stays.
+        Articles with no tags are kept (no basis to filter).
+
+        All learner errors are caught — never crashes the main cycle.
+        """
+        try:
+            filtered: list[dict] = []
+            skipped_count = 0
+            for article in candidates:
+                tags = article.get("tags", [])
+                tag_slugs = [
+                    t.get("slug", t.get("name", str(t))) if isinstance(t, dict) else str(t)
+                    for t in tags
+                    if t
+                ]
+                if not tag_slugs:
+                    filtered.append(article)
+                    continue
+                # Keep article if at least one tag is NOT skip-listed
+                try:
+                    all_skipped = all(
+                        self.learner.should_skip_tag(slug) for slug in tag_slugs
+                    )
+                except Exception as lerr:
+                    logger.warning("Learner tag check failed — keeping article: %s", lerr)
+                    all_skipped = False
+                if all_skipped:
+                    skipped_count += 1
+                else:
+                    filtered.append(article)
+            if skipped_count:
+                logger.info(
+                    "Learner filtered %d low-performing-tag articles.", skipped_count,
+                )
+            return filtered
+        except Exception as e:
+            logger.warning("filter_learner_candidates failed — returning unfiltered: %s", e)
+            return candidates
 
     def log_engagement(self, action: str, article: dict, details: dict) -> None:
         """Append to engagement_log.jsonl — full audit trail."""
@@ -154,6 +199,7 @@ class ReactionEngine:
                 candidates = self.scout.filter_already_engaged(
                     candidates, reacted_ids, commented_ids,
                 )
+                candidates = self.filter_learner_candidates(candidates)
 
                 if len(candidates) >= max_reactions:
                     break
@@ -202,12 +248,21 @@ class ReactionEngine:
             # Periodic log trimming
             self.trim_engagement_log()
 
+            # Extract patterns from this cycle's data
+            new_learnings = 0
+            try:
+                new_learnings = self.learner.analyze()
+                logger.info("Learner extracted %d new patterns.", new_learnings)
+            except Exception as e:
+                logger.warning("Learner analyze failed — non-fatal: %s", e)
+
             elapsed = time.time() - start
             summary = {
                 "reacted": reacted_count,
                 "skipped": skipped_count,
                 "failed": failed_count,
                 "candidates": len(candidates),
+                "new_learnings": new_learnings,
                 "elapsed_seconds": round(elapsed, 1),
             }
             logger.info(
