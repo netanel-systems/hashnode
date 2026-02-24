@@ -98,15 +98,12 @@ class ArticlePublisher:
             except Exception as e:
                 logger.warning("Cover generation failed: %s. Publishing without cover.", e)
 
-        # Format tags as objects
-        tag_objects = [{"slug": slug} for slug in tags]
-
-        # Publish
+        # Publish — client.publish_post resolves tag slugs to proper format
         try:
             result = self.client.publish_post(
                 title=title,
                 content_markdown=content_markdown,
-                tags=tag_objects,
+                tags=tags,  # Pass raw slugs — client resolves them
                 subtitle=subtitle,
                 cover_image_url=cover_url,
                 slug=self._slugify(title),

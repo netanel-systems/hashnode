@@ -464,11 +464,33 @@ class HashnodeClient:
             }
         }
         """
+        # Resolve tags: ensure each has both slug and name (API requirement)
+        resolved_tags: list[dict] = []
+        for tag in tags:
+            if isinstance(tag, dict) and "slug" in tag and "name" in tag:
+                resolved_tags.append(tag)
+            elif isinstance(tag, dict) and "slug" in tag:
+                # Look up name from slug
+                tag_info = self.get_tag(tag["slug"])
+                if tag_info and tag_info.get("id"):
+                    resolved_tags.append({"id": tag_info["id"], "slug": tag["slug"], "name": tag_info.get("name", tag["slug"])})
+                else:
+                    resolved_tags.append({"slug": tag["slug"], "name": tag["slug"].replace("-", " ").title()})
+            elif isinstance(tag, str):
+                # Plain slug string — resolve
+                tag_info = self.get_tag(tag)
+                if tag_info and tag_info.get("id"):
+                    resolved_tags.append({"id": tag_info["id"], "slug": tag, "name": tag_info.get("name", tag)})
+                else:
+                    resolved_tags.append({"slug": tag, "name": tag.replace("-", " ").title()})
+            else:
+                resolved_tags.append(tag)
+
         input_data: dict = {
             "publicationId": self.config.publication_id,
             "title": title,
             "contentMarkdown": content_markdown,
-            "tags": tags,
+            "tags": resolved_tags,
         }
         if subtitle:
             input_data["subtitle"] = subtitle
