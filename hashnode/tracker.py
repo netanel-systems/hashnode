@@ -142,16 +142,36 @@ class GrowthTracker:
             logger.warning("Failed to load follower snapshot: %s", e)
         return {"count": 0}
 
-    def _save_snapshot(self, count: int) -> None:
-        """Append a new follower snapshot."""
+    def _save_snapshot(self, count: int, max_snapshots: int = 365) -> None:
+        """Append a new follower snapshot, bounded to max_snapshots entries.
+
+        Keeps last max_snapshots entries to prevent unbounded growth.
+        Default 365 = ~1 year of daily snapshots.
+        """
         path = self.data_dir / "follower_snapshots.jsonl"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "count": count,
         }
-        with open(path, "a") as f:
-            f.write(json.dumps(entry) + "\n")
+
+        # Read existing entries
+        lines: list[str] = []
+        if path.exists():
+            try:
+                lines = [l for l in path.read_text().strip().split("\n") if l.strip()]
+            except OSError:
+                lines = []
+
+        # Append new entry
+        lines.append(json.dumps(entry))
+
+        # Trim to max_snapshots
+        if len(lines) > max_snapshots:
+            lines = lines[-max_snapshots:]
+            logger.info("Trimmed follower snapshots: kept last %d entries.", max_snapshots)
+
+        path.write_text("\n".join(lines) + "\n")
 
     def _save_weekly_report(self, report: dict) -> None:
         """Save the weekly report to disk."""
