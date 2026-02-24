@@ -1,0 +1,27 @@
+# Secrets
+.env
+*.env.*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Data (runtime state, not code)
+data/reacted.json
+data/commented.json
+data/followed.json
+data/liked_comments.json
+data/engagement_log.jsonl
+data/comment_history.jsonl
+data/follower_snapshots.jsonl
+data/learnings.json
+data/weekly_report.json
+data/.last_publish_date
+data/covers/
+data/logs/
+
+# IDE
+.idea/
+.vscode/
