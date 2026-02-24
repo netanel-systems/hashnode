@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from hashnode.client import HashnodeClient, HashnodeError
 from hashnode.config import HashnodeConfig, load_config
 from hashnode.scout import ArticleScout
-from hashnode.storage import load_json_ids, save_json_ids
+from hashnode.storage import load_json_ids, save_json_ids, trim_jsonl_file
 
 logger = logging.getLogger(__name__)
 
@@ -90,34 +90,8 @@ class ReactionEngine:
             f.write(json.dumps(entry) + "\n")
 
     def trim_engagement_log(self) -> None:
-        """Trim engagement log to max_engagement_log entries. Atomic write."""
-        import os
-        import tempfile
-
-        path = self.data_dir / "engagement_log.jsonl"
-        if not path.exists():
-            return
-        lines = [l for l in path.read_text().strip().split("\n") if l.strip()]
-        if len(lines) > self.config.max_engagement_log:
-            trimmed = lines[-self.config.max_engagement_log:]
-            content = "\n".join(trimmed) + "\n"
-            fd, tmp_path = tempfile.mkstemp(
-                dir=path.parent, suffix=".tmp", prefix=".engagement_",
-            )
-            try:
-                with os.fdopen(fd, "w") as f:
-                    f.write(content)
-                os.replace(tmp_path, path)
-            except Exception:
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
-                raise
-            logger.info(
-                "Trimmed engagement log: %d -> %d entries.",
-                len(lines), len(trimmed),
-            )
+        """Trim engagement log to max_engagement_log entries. Delegates to shared utility."""
+        trim_jsonl_file(self.data_dir / "engagement_log.jsonl", self.config.max_engagement_log)
 
     def run(self) -> dict:
         """Main entry point for cron. Finds articles, likes, logs.

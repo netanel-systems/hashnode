@@ -171,13 +171,7 @@ class CoverGenerator:
                 glow_draw.text((x, y), line, font=font_title, fill=glow_color)
                 glow_img = glow_img.filter(ImageFilter.GaussianBlur(radius=8))
 
-                # Composite glow onto main image
-                img = Image.composite(
-                    ImageDraw.Draw(img) and img,  # This is a trick to get img back
-                    glow_img,
-                    Image.new("L", (WIDTH, HEIGHT), 0),
-                )
-                # Re-draw since composite might have issues — simpler approach
+                # Blend glow onto main image
                 img = self._blend_images(img, glow_img, alpha=0.7)
                 draw = ImageDraw.Draw(img)
 

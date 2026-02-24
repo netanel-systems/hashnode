@@ -236,8 +236,12 @@ class ArticlePublisher:
 
     @staticmethod
     def _hash_content(content: str) -> str:
-        """Hash first 500 chars of content for dedup."""
-        normalized = content.strip().lower()[:500]
+        """Hash full content for dedup.
+
+        Previously only hashed first 500 chars, which caused false positive dedup
+        when two different articles shared a similar intro but diverged after.
+        """
+        normalized = content.strip().lower()
         return hashlib.sha256(normalized.encode()).hexdigest()[:16]
 
     @staticmethod

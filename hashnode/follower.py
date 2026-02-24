@@ -68,8 +68,16 @@ class FollowEngine:
                 break
 
             author = article.get("author", {})
-            username = author.get("username", "")
-            user_id = author.get("id", "")
+            user_id = author.get("id", "").strip()
+            username = author.get("username", "").strip()
+
+            if not user_id and not username:
+                logger.warning(
+                    "Author has neither id nor username — skipping follow: %s",
+                    author.get("name", "unknown"),
+                )
+                skipped_count += 1
+                continue
 
             if not username:
                 skipped_count += 1
@@ -91,6 +99,7 @@ class FollowEngine:
                 continue
 
             try:
+                # Pass only one identifier — prefer id if available
                 result = self.client.toggle_follow_user(
                     user_id=user_id if user_id else None,
                     username=username if not user_id else None,

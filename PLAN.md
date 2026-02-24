@@ -102,7 +102,7 @@ class HashnodeConfig(BaseSettings):
     min_reactions_to_comment: int = 3        # Min likes before we comment
 
     # Publishing
-    max_articles_per_day: int = 1            # Never more than 1/day
+    max_articles_per_day: int = 3            # Updated: increased to 3/day (commit dc22778)
     gemini_api_keys: list[str] = []          # LLM for article generation
     cover_style: str = "neon"                # Cover image style
 
@@ -310,7 +310,7 @@ Follower tracking, reciprocity, weekly reports. Uses `me` query for follower dat
 | Published titles | `data/published_history.json` | title similarity > 0.8 → skip |
 | Published slugs | `data/published_history.json` | exact slug match → skip |
 | Published topics | `data/published_history.json` | topic + angle hash → skip |
-| Content hashes | `data/published_history.json` | first 500 chars hash → skip |
+| Content hashes | `data/published_history.json` | full content hash → skip |
 | Daily limit | `data/.last_publish_date` | same date → skip |
 
 ### Filter Chain (every cycle)
