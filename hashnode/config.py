@@ -88,6 +88,7 @@ class HashnodeConfig(BaseSettings):
     @model_validator(mode='after')
     def resolve_paths(self) -> 'HashnodeConfig':
         """Resolve data_dir to absolute path relative to project_root if not absolute."""
+        self.data_dir = self.data_dir.expanduser()
         if not self.data_dir.is_absolute():
             self.data_dir = self.project_root / self.data_dir
         return self

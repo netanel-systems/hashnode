@@ -19,7 +19,6 @@ import logging
 import re
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
-from pathlib import Path
 
 from hashnode.client import HashnodeClient, HashnodeError
 from hashnode.config import HashnodeConfig

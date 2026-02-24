@@ -68,8 +68,8 @@ class FollowEngine:
                 break
 
             author = article.get("author", {})
-            user_id = author.get("id", "").strip()
-            username = author.get("username", "").strip()
+            user_id = (author.get("id") or "").strip()
+            username = (author.get("username") or "").strip()
 
             if not user_id and not username:
                 logger.warning(

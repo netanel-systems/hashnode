@@ -74,7 +74,11 @@ def save_json_ids(
     if path.exists():
         try:
             data = json.loads(path.read_text())
-            existing = data.get(key, [])
+            if not isinstance(data, dict):
+                logger.warning("Unexpected JSON format in %s — resetting", path.name)
+                existing = []
+            else:
+                existing = data.get(key, [])
         except (json.JSONDecodeError, OSError):
             existing = []
 
@@ -96,7 +100,7 @@ def trim_jsonl_file(path: Path, max_lines: int) -> None:
     """Trim a JSONL file to max_lines entries. Atomic write."""
     if not path.exists():
         return
-    lines = [l for l in path.read_text().strip().split("\n") if l.strip()]
+    lines = [line for line in path.read_text().strip().split("\n") if line.strip()]
     if len(lines) > max_lines:
         trimmed = lines[-max_lines:]
         atomic_write_json_lines(path, trimmed)

@@ -53,7 +53,11 @@ class HashnodeClient:
         """Load persisted tag ID cache from disk."""
         if self._tag_cache_path.exists():
             try:
-                return json.loads(self._tag_cache_path.read_text())
+                data = json.loads(self._tag_cache_path.read_text())
+                if not isinstance(data, dict):
+                    logger.warning("Tag cache is not a dict — resetting")
+                    return {}
+                return data
             except (json.JSONDecodeError, OSError):
                 return {}
         return {}

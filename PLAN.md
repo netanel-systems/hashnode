@@ -344,7 +344,7 @@ scout finds articles
 - Reactions: ~10/run × ~18 runs = ~180 likes/day
 - Comments: 5/cycle × 3 = 15 comments/day
 - Follows: 5/cycle × 3 = 15 follows/day
-- Articles: 1/day (max)
+- Articles: 3/day (max)
 - Cost: $0 reactions (no LLM), ~$3-5/month comments (Gemini), ~$2/month articles (Gemini)
 
 ---
