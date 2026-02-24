@@ -54,12 +54,13 @@ class HashnodeClient:
         if self._tag_cache_path.exists():
             try:
                 data = json.loads(self._tag_cache_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                return {}
+            else:
                 if not isinstance(data, dict):
                     logger.warning("Tag cache is not a dict — resetting")
                     return {}
                 return data
-            except (json.JSONDecodeError, OSError):
-                return {}
         return {}
 
     def _save_tag_cache(self) -> None:

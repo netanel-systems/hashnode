@@ -17,7 +17,7 @@ import hashlib
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from difflib import SequenceMatcher
 
 from hashnode.client import HashnodeClient, HashnodeError
@@ -46,7 +46,7 @@ class ArticlePublisher:
         content_markdown: str,
         tags: list[str],
         subtitle: str = "",
-        generate_cover: bool = True,
+        generate_cover: bool = False,
     ) -> dict:
         """Full publish pipeline with all safety checks.
 
@@ -140,7 +140,7 @@ class ArticlePublisher:
         Counts actual articles published today vs max_articles_per_day config.
         Uses UTC dates consistently (published_at is stored in UTC).
         """
-        today_utc = datetime.now(timezone.utc).date().isoformat()
+        today_utc = datetime.now(UTC).date().isoformat()
         history = self._load_published_history()
         count_today = sum(
             1 for entry in history
@@ -152,7 +152,7 @@ class ArticlePublisher:
         """Record today as last publish date."""
         path = self.data_dir / ".last_publish_date"
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        path.write_text(datetime.now(timezone.utc).date().isoformat())
+        path.write_text(datetime.now(UTC).date().isoformat())
 
     def _check_title_unique(self, title: str) -> bool:
         """Check if title is sufficiently different from all published titles.
@@ -188,10 +188,18 @@ class ArticlePublisher:
             return []
         try:
             with open(path) as f:
-                return json.load(f)
+                data = json.load(f)
         except (json.JSONDecodeError, OSError) as e:
             logger.warning("Failed to load published_history.json: %s", e)
             return []
+        else:
+            if not isinstance(data, list):
+                logger.warning(
+                    "published_history.json has unexpected format (%s); resetting.",
+                    type(data).__name__,
+                )
+                return []
+            return data
 
     def _save_published_history(self, history: list[dict]) -> None:
         """Save published history, bounded. Uses atomic write."""
@@ -218,7 +226,7 @@ class ArticlePublisher:
             "tags": tags,
             "content_hash": content_hash,
             "url": url,
-            "published_at": datetime.now(timezone.utc).isoformat(),
+            "published_at": datetime.now(UTC).isoformat(),
         })
         self._save_published_history(history)
         logger.info("Recorded in published history: '%s'", title[:60])
