@@ -51,7 +51,7 @@ class HashnodeConfig(BaseSettings):
     )
 
     # --- Publishing ---
-    max_articles_per_day: int = Field(default=1, ge=1, le=5)
+    max_articles_per_day: int = Field(default=3, ge=1, le=5)
     gemini_api_keys: list[str] = Field(default_factory=list)
     cover_style: str = Field(default="neon", description="Cover image style: neon, matrix, gradient")
 
