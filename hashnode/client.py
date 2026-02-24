@@ -7,6 +7,7 @@ Rate limit: 500 req/min authenticated.
 All mutations and queries verified via live schema introspection.
 """
 
+import json
 import logging
 import time
 
@@ -44,8 +45,31 @@ class HashnodeClient:
             "Content-Type": "application/json",
         }
         self._last_request_at: float = 0.0
-        self._tag_id_cache: dict[str, str] = {}  # slug -> ObjectId
+        self._tag_cache_path = config.data_dir / "tag_cache.json"
+        self._tag_id_cache: dict[str, str] = self._load_tag_cache()  # slug -> ObjectId
         logger.info("HashnodeClient initialized: endpoint=%s", self.endpoint)
+
+    def _load_tag_cache(self) -> dict[str, str]:
+        """Load persisted tag ID cache from disk."""
+        if self._tag_cache_path.exists():
+            try:
+                data = json.loads(self._tag_cache_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                return {}
+            else:
+                if not isinstance(data, dict):
+                    logger.warning("Tag cache is not a dict — resetting")
+                    return {}
+                return data
+        return {}
+
+    def _save_tag_cache(self) -> None:
+        """Persist tag ID cache to disk to avoid repeated API lookups."""
+        try:
+            self._tag_cache_path.parent.mkdir(parents=True, exist_ok=True)
+            self._tag_cache_path.write_text(json.dumps(self._tag_id_cache, indent=2))
+        except OSError as e:
+            logger.warning("Could not save tag cache: %s", e)
 
     def _throttle(self, *, is_write: bool) -> None:
         """Proactive rate limiting: stay well under 500/min."""
@@ -146,8 +170,8 @@ class HashnodeClient:
     def resolve_tag_ids(self, slugs: list[str]) -> list[str]:
         """Resolve tag slugs to ObjectId strings.
 
-        Uses a cache to avoid repeated lookups. Silently skips
-        tags that don't exist on Hashnode.
+        Uses a disk-persisted cache to avoid repeated lookups across cron cycles.
+        Silently skips tags that don't exist on Hashnode.
         """
         ids: list[str] = []
         for slug in slugs:
@@ -163,6 +187,7 @@ class HashnodeClient:
                     logger.warning("Tag not found: %s", slug)
             except HashnodeError:
                 logger.warning("Failed to resolve tag: %s", slug)
+        self._save_tag_cache()
         return ids
 
     def get_feed(
@@ -475,6 +500,10 @@ class HashnodeClient:
                 if tag_info and tag_info.get("id"):
                     resolved_tags.append({"id": tag_info["id"], "slug": tag["slug"], "name": tag_info.get("name", tag["slug"])})
                 else:
+                    logger.warning(
+                        "Tag '%s' not found on Hashnode — using slug as fallback name",
+                        tag["slug"],
+                    )
                     resolved_tags.append({"slug": tag["slug"], "name": tag["slug"].replace("-", " ").title()})
             elif isinstance(tag, str):
                 # Plain slug string — resolve
@@ -482,8 +511,13 @@ class HashnodeClient:
                 if tag_info and tag_info.get("id"):
                     resolved_tags.append({"id": tag_info["id"], "slug": tag, "name": tag_info.get("name", tag)})
                 else:
+                    logger.warning(
+                        "Tag '%s' not found on Hashnode — using slug as fallback name",
+                        tag,
+                    )
                     resolved_tags.append({"slug": tag, "name": tag.replace("-", " ").title()})
             else:
+                logger.warning("Unknown tag format — passing through: %s", tag)
                 resolved_tags.append(tag)
 
         input_data: dict = {

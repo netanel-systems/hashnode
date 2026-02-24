@@ -16,7 +16,6 @@ import json
 import logging
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
-from pathlib import Path
 
 from hashnode.config import HashnodeConfig
 
@@ -46,13 +45,14 @@ class GrowthLearner:
             return []
 
     def save_learnings(self, learnings: list[dict]) -> None:
-        """Save learnings to disk, bounded to max_learnings."""
+        """Save learnings to disk, bounded to max_learnings. Uses atomic write."""
+        from hashnode.storage import _atomic_write_json
+
         path = self.data_dir / "learnings.json"
         if len(learnings) > self.config.max_learnings:
             learnings = learnings[-self.config.max_learnings:]
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        with open(path, "w") as f:
-            json.dump(learnings, f, indent=2)
+        _atomic_write_json(path, learnings)
         logger.info("Saved %d learnings.", len(learnings))
 
     def store_learning(

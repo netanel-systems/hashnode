@@ -7,7 +7,7 @@ via environment variables. Validates at startup — fail fast, fail loud.
 import logging
 from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 logger = logging.getLogger(__name__)
@@ -52,7 +52,6 @@ class HashnodeConfig(BaseSettings):
 
     # --- Publishing ---
     max_articles_per_day: int = Field(default=3, ge=1, le=5)
-    gemini_api_keys: list[str] = Field(default_factory=list)
     cover_style: str = Field(default="neon", description="Cover image style: neon, matrix, gradient")
 
     # --- History Bounds (prevent unbounded file growth) ---
@@ -86,10 +85,18 @@ class HashnodeConfig(BaseSettings):
             )
         return v
 
+    @model_validator(mode='after')
+    def resolve_paths(self) -> 'HashnodeConfig':
+        """Resolve data_dir to absolute path relative to project_root if not absolute."""
+        self.data_dir = self.data_dir.expanduser()
+        if not self.data_dir.is_absolute():
+            self.data_dir = self.project_root / self.data_dir
+        return self
+
     @property
     def abs_data_dir(self) -> Path:
         """Absolute path to data directory."""
-        return self.project_root / self.data_dir
+        return self.data_dir
 
 
 def load_config() -> HashnodeConfig:
