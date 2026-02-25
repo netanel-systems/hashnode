@@ -1,0 +1,16 @@
+{
+  "task": "hashnode-publish-now",
+  "team": "hashnode",
+  "current_step": 4,
+  "status": "completed",
+  "merge_ready": true,
+  "started_at": "2026-02-25T13:42:00Z",
+  "completed_at": "2026-02-25T13:45:00Z",
+  "article_published": {
+    "title": "The Supervisor Pattern: When Your AI Agent Needs a Manager",
+    "url": "https://klementgunndu1.hashnode.dev/the-supervisor-pattern-when-your-ai-agent-needs-a-manager",
+    "tags": ["ai", "python", "agents", "architecture"],
+    "published_at": "2026-02-25T13:42:00Z"
+  },
+  "output_file": "teams/hashnode/output/hashnode-publish-now-20260225-1342.md"
+}
