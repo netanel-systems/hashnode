@@ -221,31 +221,47 @@ class GrowthLearner:
                 return learning.get("confidence", 0) >= 0.7
         return False
 
-    def analyze(self) -> int:
+    # Minimum total engagement events before a tag is considered high-performing.
+    ENGAGEMENT_THRESHOLD: int = 5
+
+    def analyze(self, known_tags: list[str] | None = None) -> int:
         """Derive and persist patterns from engagement_log.jsonl.
 
-        Inspects tag performance and stores actionable learnings:
+        Inspects tag performance against a canonical tag list and stores
+        actionable learnings:
         - Tags with zero engagement → 'skip <tag>' pattern (confidence 0.8)
         - Tags with high engagement → positive pattern (confidence 0.9)
+
+        Args:
+            known_tags: Canonical list of tag slugs to evaluate. Defaults to
+                CURATED_TAGS from scout.py. Tags not seen in the engagement log
+                are treated as zero-engagement.
 
         Returns the number of new learnings stored.
         Called automatically after each reaction or comment cycle.
         """
+        from hashnode.scout import CURATED_TAGS  # local import — avoids top-level coupling
+
+        tag_list = known_tags if known_tags is not None else CURATED_TAGS
         tag_stats = self.get_engagement_by_tag()
-        if not tag_stats:
-            logger.info("analyze: no engagement data yet — skipping.")
+
+        if not tag_stats and not tag_list:
+            logger.info("analyze: no engagement data and no known tags — skipping.")
             return 0
 
         existing_learnings = self.load_learnings()
         existing_patterns: set[str] = {
-            l.get("pattern", "").lower() for l in existing_learnings
+            learning.get("pattern", "").lower() for learning in existing_learnings
         }
 
         stored = 0
 
-        # Identify zero-engagement tags → candidates for skipping
-        for tag, stats in tag_stats.items():
+        # Iterate canonical tag list. Tags absent from the log have total=0.
+        for tag in tag_list:
+            stats = tag_stats.get(tag, {"reactions": 0, "comments": 0, "follows": 0, "total": 0})
             total = stats.get("total", 0)
+
+            # Zero-engagement: candidate for skipping
             skip_pattern = f"skip {tag} — zero engagement across all actions"
             if total == 0 and skip_pattern.lower() not in existing_patterns:
                 self.store_learning(
@@ -253,14 +269,15 @@ class GrowthLearner:
                     confidence=0.8,
                     evidence=f"Tag '{tag}' has 0 total engagement events in log.",
                 )
+                existing_patterns.add(skip_pattern.lower())
                 stored += 1
 
-        # Identify high-performing tags (total >= 5 engagements)
-        ENGAGEMENT_THRESHOLD = 5
-        for tag, stats in tag_stats.items():
-            total = stats.get("total", 0)
+            # High-performing: candidate for prioritization
             high_pattern = f"prioritize {tag} — high engagement tag"
-            if total >= ENGAGEMENT_THRESHOLD and high_pattern.lower() not in existing_patterns:
+            if (
+                total >= self.ENGAGEMENT_THRESHOLD
+                and high_pattern.lower() not in existing_patterns
+            ):
                 self.store_learning(
                     pattern=high_pattern,
                     confidence=0.9,
@@ -271,6 +288,7 @@ class GrowthLearner:
                         f"follows={stats.get('follows', 0)}."
                     ),
                 )
+                existing_patterns.add(high_pattern.lower())
                 stored += 1
 
         logger.info("analyze: stored %d new learnings.", stored)

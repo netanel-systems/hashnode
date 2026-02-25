@@ -135,34 +135,45 @@ class ReactionEngine:
             f.write(json.dumps(entry) + "\n")
 
     def trim_engagement_log(self) -> None:
-        """Trim engagement log to max_engagement_log entries. Atomic write."""
+        """Trim engagement log to max_engagement_log entries. Best-effort atomic write.
+
+        Never raises — filesystem errors are logged as warnings so the main
+        cycle can continue even if trimming fails.
+        """
         import os
         import tempfile
 
         path = self.data_dir / "engagement_log.jsonl"
         if not path.exists():
             return
-        lines = [l for l in path.read_text().strip().split("\n") if l.strip()]
-        if len(lines) > self.config.max_engagement_log:
+        try:
+            lines = [line for line in path.read_text().strip().split("\n") if line.strip()]
+            if len(lines) <= self.config.max_engagement_log:
+                return
             trimmed = lines[-self.config.max_engagement_log:]
             content = "\n".join(trimmed) + "\n"
-            fd, tmp_path = tempfile.mkstemp(
-                dir=path.parent, suffix=".tmp", prefix=".engagement_",
-            )
+            tmp_path: str | None = None
             try:
+                fd, tmp_path = tempfile.mkstemp(
+                    dir=path.parent, suffix=".tmp", prefix=".engagement_",
+                )
                 with os.fdopen(fd, "w") as f:
                     f.write(content)
                 os.replace(tmp_path, path)
+                tmp_path = None  # consumed by replace — no cleanup needed
             except Exception:
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
+                if tmp_path is not None:
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
                 raise
             logger.info(
                 "Trimmed engagement log: %d -> %d entries.",
                 len(lines), len(trimmed),
             )
+        except Exception as e:
+            logger.warning("trim_engagement_log failed — non-fatal: %s", e)
 
     def run(self) -> dict:
         """Main entry point for cron. Finds articles, likes, logs.

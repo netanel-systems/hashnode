@@ -37,10 +37,11 @@ def load_json_ids(path: Path, key: str = "post_ids") -> set[str]:
         return set()
 
 
-def _atomic_write_json(path: Path, data: dict) -> None:
+def _atomic_write_json(path: Path, data: dict | list) -> None:
     """Write JSON data atomically using temp file + rename.
 
     Prevents data corruption if the process crashes mid-write.
+    Accepts both dict and list payloads.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     # Write to temp file in same directory (same filesystem for atomic rename)
