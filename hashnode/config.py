@@ -30,7 +30,7 @@ class HashnodeConfig(BaseSettings):
     request_timeout: int = Field(default=30, ge=5, le=120)
 
     # --- Engagement ---
-    max_reactions_per_run: int = Field(default=10, ge=1, le=50)
+    max_reactions_per_run: int = Field(default=25, ge=1, le=50)
     max_comments_per_cycle: int = Field(default=5, ge=1, le=15)
     max_follows_per_cycle: int = Field(default=5, ge=1, le=20)
     reaction_delay: float = Field(
