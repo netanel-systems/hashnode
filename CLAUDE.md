@@ -5,6 +5,33 @@
 
 ---
 
+## Own-Post Engagement Rules (NON-NEGOTIABLE)
+
+These rules govern how we interact with comments on our own Hashnode posts.
+
+1. **One comment per post on others' content — no thread continuation.** We reply
+   once to someone else's post, then stop. Never continue a thread we started.
+2. **Every comment received on our own posts = like + reply.** No silent reads.
+   Every comment deserves both a likeComment (show appreciation) and a specific reply.
+3. **Like the post before replying to it.** When commenting on someone else's content,
+   likePost first, then addComment. This applies in commenter.py cycles.
+4. **Max engagement depth: 1 reply per incoming comment.** We respond to the first
+   comment from any person via addReply. We do not reply to our own reply.
+5. **Dedup is strict.** responded_comments.json is the source of truth.
+6. **Reply must be specific.** Generic replies ("Thanks for reading!") are a CRITICAL violation.
+
+### Responder Cron (2x daily)
+
+```cron
+# Own-post comment engagement — 9 AM UTC
+0 9 * * * cd ~/netanel/teams/hashnode && .venv/bin/python -m hashnode.responder_main
+
+# Own-post comment engagement — 3 PM UTC
+0 15 * * * cd ~/netanel/teams/hashnode && .venv/bin/python -m hashnode.responder_main
+```
+
+---
+
 ## Quick Reference
 
 - **API:** `https://gql.hashnode.com/` (POST, GraphQL)
