@@ -168,9 +168,18 @@ class OwnPostResponder:
         }
         """
         data = self.client._graphql(query, {"host": host, "first": MAX_OWN_POSTS})
-        edges = (
-            data.get("publication", {}).get("posts", {}).get("edges", [])
-        )
+
+        # Handle case where publication doesn't exist yet (returns null)
+        publication = data.get("publication")
+        if publication is None:
+            logger.warning(
+                "Publication not found at host: %s. "
+                "Create publication on Hashnode first or check HASHNODE_PUBLICATION_HOST.",
+                host,
+            )
+            return []
+
+        edges = publication.get("posts", {}).get("edges", [])
         return [e["node"] for e in edges if "node" in e]
 
     def fetch_post_comments(self, post_id: str) -> list[dict]:
