@@ -24,6 +24,15 @@ class HashnodeConfig(BaseSettings):
     pat: str = Field(default="", description="Personal Access Token from hashnode.com/settings/developer")
     publication_id: str = Field(default="", description="Publication ID for publishing articles")
     username: str = Field(default="", description="Our Hashnode username (to skip own articles)")
+    publication_host: str = Field(
+        default="",
+        description=(
+            "Custom domain or subdomain for our publication "
+            "(e.g. blog.example.com or username.hashnode.dev). "
+            "Used by OwnPostResponder to fetch our own posts. "
+            "Falls back to {username}.hashnode.dev if not set."
+        ),
+    )
 
     # --- API ---
     graphql_endpoint: str = "https://gql.hashnode.com/"
