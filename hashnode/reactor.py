@@ -19,8 +19,9 @@ from datetime import datetime, timezone
 
 from hashnode.client import HashnodeClient, HashnodeError
 from hashnode.config import HashnodeConfig, load_config
+from hashnode.learner import GrowthLearner
 from hashnode.scout import ArticleScout
-from hashnode.storage import load_json_ids, save_json_ids
+from hashnode.storage import load_json_ids, save_json_ids, trim_jsonl
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ class ReactionEngine:
         self.config = config
         self.client = HashnodeClient(config)
         self.scout = ArticleScout(self.client, config)
+        self.learner = GrowthLearner(config)
         self.data_dir = config.abs_data_dir
 
     def load_reacted_ids(self) -> set[str]:
@@ -67,6 +69,72 @@ class ReactionEngine:
     def load_commented_ids(self) -> set[str]:
         """Load post IDs we already commented on (for filtering)."""
         return load_json_ids(self.data_dir / "commented.json")
+
+    def filter_learner_candidates(self, candidates: list[dict]) -> list[dict]:
+        """Filter out articles whose tags are marked skip by the learner.
+
+        Preloads learnings once per call to avoid repeated disk reads (C×T
+        file reads per candidate×tag otherwise). Uses the loaded learnings
+        for all per-article tag checks via should_skip_tag().
+
+        If ALL tags on an article are skip-listed, the article is dropped.
+        Articles with at least one non-skip tag, or with no tags, are kept.
+
+        All learner errors are caught — never crashes the main cycle.
+        """
+        try:
+            # Preload once — avoid repeated disk I/O per tag slug
+            try:
+                preloaded_learnings = self.learner.load_learnings()
+            except Exception as lerr:
+                logger.warning("Learner preload failed — skipping filter: %s", lerr)
+                return candidates
+
+            filtered: list[dict] = []
+            skipped_count = 0
+            for article in candidates:
+                tags = article.get("tags", [])
+                tag_slugs = [
+                    t.get("slug", t.get("name", str(t))) if isinstance(t, dict) else str(t)
+                    for t in tags
+                    if t
+                ]
+                if not tag_slugs:
+                    filtered.append(article)
+                    continue
+                # Keep article if at least one tag is NOT skip-listed
+                try:
+                    all_skipped = all(
+                        self._is_tag_skipped(slug, preloaded_learnings)
+                        for slug in tag_slugs
+                    )
+                except Exception as lerr:
+                    logger.warning("Learner tag check failed — keeping article: %s", lerr)
+                    all_skipped = False
+                if all_skipped:
+                    skipped_count += 1
+                else:
+                    filtered.append(article)
+            if skipped_count:
+                logger.info(
+                    "Learner filtered %d low-performing-tag articles.", skipped_count,
+                )
+            return filtered
+        except Exception as e:
+            logger.warning("filter_learner_candidates failed — returning unfiltered: %s", e)
+            return candidates
+
+    def _is_tag_skipped(self, tag: str, learnings: list[dict]) -> bool:
+        """Check if a tag slug is skip-listed using preloaded learnings.
+
+        In-memory check — avoids disk I/O. Mirrors GrowthLearner.should_skip_tag()
+        logic but operates on already-loaded data.
+        """
+        for learning in learnings:
+            pattern = learning.get("pattern", "").lower()
+            if tag.lower() in pattern and "skip" in pattern:
+                return learning.get("confidence", 0) >= 0.7
+        return False
 
     def log_engagement(self, action: str, article: dict, details: dict) -> None:
         """Append to engagement_log.jsonl — full audit trail."""
@@ -90,18 +158,8 @@ class ReactionEngine:
             f.write(json.dumps(entry) + "\n")
 
     def trim_engagement_log(self) -> None:
-        """Trim engagement log to max_engagement_log entries."""
-        path = self.data_dir / "engagement_log.jsonl"
-        if not path.exists():
-            return
-        lines = path.read_text().strip().split("\n")
-        if len(lines) > self.config.max_engagement_log:
-            trimmed = lines[-self.config.max_engagement_log:]
-            path.write_text("\n".join(trimmed) + "\n")
-            logger.info(
-                "Trimmed engagement log: %d -> %d entries.",
-                len(lines), len(trimmed),
-            )
+        """Trim engagement log to max_engagement_log entries. Delegates to storage.trim_jsonl."""
+        trim_jsonl(self.data_dir / "engagement_log.jsonl", self.config.max_engagement_log)
 
     def run(self) -> dict:
         """Main entry point for cron. Finds articles, likes, logs.
@@ -138,6 +196,7 @@ class ReactionEngine:
                 candidates = self.scout.filter_already_engaged(
                     candidates, reacted_ids, commented_ids,
                 )
+                candidates = self.filter_learner_candidates(candidates)
 
                 if len(candidates) >= max_reactions:
                     break
@@ -186,12 +245,21 @@ class ReactionEngine:
             # Periodic log trimming
             self.trim_engagement_log()
 
+            # Extract patterns from this cycle's data
+            new_learnings = 0
+            try:
+                new_learnings = self.learner.analyze()
+                logger.info("Learner extracted %d new patterns.", new_learnings)
+            except Exception as e:
+                logger.warning("Learner analyze failed — non-fatal: %s", e)
+
             elapsed = time.time() - start
             summary = {
                 "reacted": reacted_count,
                 "skipped": skipped_count,
                 "failed": failed_count,
                 "candidates": len(candidates),
+                "new_learnings": new_learnings,
                 "elapsed_seconds": round(elapsed, 1),
             }
             logger.info(

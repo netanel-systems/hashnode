@@ -30,7 +30,7 @@ class HashnodeConfig(BaseSettings):
     request_timeout: int = Field(default=30, ge=5, le=120)
 
     # --- Engagement ---
-    max_reactions_per_run: int = Field(default=10, ge=1, le=50)
+    max_reactions_per_run: int = Field(default=25, ge=1, le=50)
     max_comments_per_cycle: int = Field(default=5, ge=1, le=15)
     max_follows_per_cycle: int = Field(default=5, ge=1, le=20)
     reaction_delay: float = Field(
@@ -52,7 +52,6 @@ class HashnodeConfig(BaseSettings):
 
     # --- Publishing ---
     max_articles_per_day: int = Field(default=3, ge=1, le=5)
-    gemini_api_keys: list[str] = Field(default_factory=list)
     cover_style: str = Field(default="neon", description="Cover image style: neon, matrix, gradient")
 
     # --- History Bounds (prevent unbounded file growth) ---

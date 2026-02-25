@@ -37,6 +37,9 @@ class FollowEngine:
             key="usernames",
         )
 
+    # Max accidental unfollows before aborting cycle (safety guard)
+    MAX_UNFOLLOWS_BEFORE_ABORT = 2
+
     def follow_cycle(self, articles: list[dict]) -> dict:
         """Follow authors of recently engaged articles.
 
@@ -45,6 +48,10 @@ class FollowEngine:
 
         Returns:
             Summary dict with counts
+
+        Safety: If toggleFollowUser accidentally unfollows more than
+        MAX_UNFOLLOWS_BEFORE_ABORT users (tracked set was lost/corrupted),
+        the cycle aborts to prevent mass-unfollowing.
         """
         logger.info("=== Follow cycle starting ===")
         followed_usernames = self.load_followed_usernames()
@@ -53,6 +60,7 @@ class FollowEngine:
         followed_count = 0
         skipped_count = 0
         failed_count = 0
+        unfollow_count = 0
         new_follows: set[str] = set()
 
         for article in articles:
@@ -95,14 +103,24 @@ class FollowEngine:
                     logger.info("Followed %s", username)
                 else:
                     # toggleFollowUser toggled OFF — we were already following
-                    # This shouldn't happen with our dedup, but handle it
+                    # but username wasn't in our tracked set (data loss/corruption)
+                    unfollow_count += 1
                     logger.warning(
-                        "toggleFollowUser unfollowed %s (was already following). "
-                        "Adding to tracked set to prevent re-toggle.",
-                        username,
+                        "toggleFollowUser UNFOLLOWED %s (was already following "
+                        "but not in tracked set). Adding to prevent re-toggle. "
+                        "(%d/%d unfollow safety limit)",
+                        username, unfollow_count, self.MAX_UNFOLLOWS_BEFORE_ABORT,
                     )
                     new_follows.add(username)
                     skipped_count += 1
+
+                    if unfollow_count >= self.MAX_UNFOLLOWS_BEFORE_ABORT:
+                        logger.error(
+                            "SAFETY ABORT: %d accidental unfollows detected. "
+                            "Tracked set may be corrupted. Stopping cycle.",
+                            unfollow_count,
+                        )
+                        break
             except HashnodeError as e:
                 failed_count += 1
                 logger.warning("Follow failed for %s: %s", username, e)
