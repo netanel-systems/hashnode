@@ -59,16 +59,52 @@ class GrowthLearner:
     def store_learning(
         self, pattern: str, confidence: float, evidence: str,
     ) -> None:
-        """Persist a single learning insight."""
+        """Persist a single learning insight.
+
+        Deduplicates by pattern string: if the same pattern already exists,
+        its confidence and evidence are updated in place rather than appending
+        a new duplicate entry.
+
+        Also resolves contradictions: if storing a 'prioritize <tag>' pattern
+        and a 'skip <tag>' pattern already exists (or vice versa), the old
+        contradictory entry is removed before storing the new one.
+        """
         learnings = self.load_learnings()
-        learnings.append({
-            "pattern": pattern,
-            "confidence": round(confidence, 2),
-            "evidence": evidence,
-            "discovered": datetime.now(timezone.utc).isoformat(),
-        })
+        existing_by_pattern = {item.get("pattern", ""): idx for idx, item in enumerate(learnings)}
+
+        # Contradiction resolution: skip ↔ prioritize for same tag
+        action = None
+        tag_key = None
+        if pattern.startswith("prioritize "):
+            action = "prioritize"
+            tag_key = pattern[len("prioritize "):].split(" —")[0].strip()
+        elif pattern.startswith("skip "):
+            action = "skip"
+            tag_key = pattern[len("skip "):].split(" —")[0].strip()
+
+        if action and tag_key:
+            opposite_action = "skip" if action == "prioritize" else "prioritize"
+            opposite_prefix = f"{opposite_action} {tag_key}"
+            learnings = [l for l in learnings if not l.get("pattern", "").startswith(opposite_prefix)]
+            # Rebuild index after potential removal
+            existing_by_pattern = {item.get("pattern", ""): idx for idx, item in enumerate(learnings)}
+
+        if pattern in existing_by_pattern:
+            idx = existing_by_pattern[pattern]
+            learnings[idx]["confidence"] = round(confidence, 2)
+            learnings[idx]["evidence"] = evidence
+            learnings[idx]["last_updated"] = datetime.now(timezone.utc).isoformat()
+            logger.info("Updated existing learning: %s (confidence=%.2f)", pattern, confidence)
+        else:
+            learnings.append({
+                "pattern": pattern,
+                "confidence": round(confidence, 2),
+                "evidence": evidence,
+                "discovered": datetime.now(timezone.utc).isoformat(),
+            })
+            logger.info("Stored new learning: %s (confidence=%.2f)", pattern, confidence)
+
         self.save_learnings(learnings)
-        logger.info("Stored learning: %s (confidence=%.2f)", pattern, confidence)
 
     def get_insights_for_prompt(self, max_insights: int = 5) -> list[str]:
         """Get top learnings as bullet points for comment generation prompt.
