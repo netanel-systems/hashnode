@@ -232,6 +232,10 @@ class GrowthLearner:
         - Tags with zero engagement → 'skip <tag>' pattern (confidence 0.8)
         - Tags with high engagement → positive pattern (confidence 0.9)
 
+        Batches all new learnings and calls save_learnings() once to avoid
+        repeated disk I/O (one load + one save per analyze call, regardless
+        of how many tags are evaluated).
+
         Args:
             known_tags: Canonical list of tag slugs to evaluate. Defaults to
                 CURATED_TAGS from scout.py. Tags not seen in the engagement log
@@ -249,12 +253,13 @@ class GrowthLearner:
             logger.info("analyze: no engagement data and no known tags — skipping.")
             return 0
 
+        # Load once — all new entries are collected in memory, saved once at end.
         existing_learnings = self.load_learnings()
         existing_patterns: set[str] = {
             learning.get("pattern", "").lower() for learning in existing_learnings
         }
 
-        stored = 0
+        new_entries: list[dict] = []
 
         # Iterate canonical tag list. Tags absent from the log have total=0.
         for tag in tag_list:
@@ -264,13 +269,14 @@ class GrowthLearner:
             # Zero-engagement: candidate for skipping
             skip_pattern = f"skip {tag} — zero engagement across all actions"
             if total == 0 and skip_pattern.lower() not in existing_patterns:
-                self.store_learning(
-                    pattern=skip_pattern,
-                    confidence=0.8,
-                    evidence=f"Tag '{tag}' has 0 total engagement events in log.",
-                )
+                entry = {
+                    "pattern": skip_pattern,
+                    "confidence": 0.8,
+                    "evidence": f"Tag '{tag}' has 0 total engagement events in log.",
+                    "discovered": datetime.now(timezone.utc).isoformat(),
+                }
+                new_entries.append(entry)
                 existing_patterns.add(skip_pattern.lower())
-                stored += 1
 
             # High-performing: candidate for prioritization
             high_pattern = f"prioritize {tag} — high engagement tag"
@@ -278,21 +284,31 @@ class GrowthLearner:
                 total >= self.ENGAGEMENT_THRESHOLD
                 and high_pattern.lower() not in existing_patterns
             ):
-                self.store_learning(
-                    pattern=high_pattern,
-                    confidence=0.9,
-                    evidence=(
+                entry = {
+                    "pattern": high_pattern,
+                    "confidence": 0.9,
+                    "evidence": (
                         f"Tag '{tag}' has {total} engagement events: "
                         f"reactions={stats.get('reactions', 0)}, "
                         f"comments={stats.get('comments', 0)}, "
                         f"follows={stats.get('follows', 0)}."
                     ),
-                )
+                    "discovered": datetime.now(timezone.utc).isoformat(),
+                }
+                new_entries.append(entry)
                 existing_patterns.add(high_pattern.lower())
-                stored += 1
 
-        logger.info("analyze: stored %d new learnings.", stored)
-        return stored
+        if new_entries:
+            # Save once — not once per learning
+            self.save_learnings(existing_learnings + new_entries)
+            logger.info(
+                "analyze: stored %d new learnings (%d total).",
+                len(new_entries), len(existing_learnings) + len(new_entries),
+            )
+        else:
+            logger.info("analyze: no new learnings.")
+
+        return len(new_entries)
 
     def generate_weekly_summary(self) -> dict:
         """Generate comprehensive weekly summary.

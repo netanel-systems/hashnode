@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -22,9 +21,6 @@ from hashnode.commenter import CommentEngine
 from hashnode.config import HashnodeConfig
 from hashnode.learner import GrowthLearner
 from hashnode.reactor import ReactionEngine
-
-if TYPE_CHECKING:
-    pass
 
 
 # ---------------------------------------------------------------------------
@@ -209,10 +205,25 @@ class TestGrowthLearnerAnalyze:
 # ---------------------------------------------------------------------------
 
 class TestReactionEngineFilterLearner:
+    """Tests for filter_learner_candidates().
+
+    The method preloads learnings once via learner.load_learnings() and then
+    uses the in-memory _is_tag_skipped() helper for per-article checks.
+    Tests mock load_learnings() to control skip behavior.
+    """
+
+    def _skip_learning(self, tag: str) -> dict:
+        """Build a synthetic skip learning entry for a tag."""
+        return {
+            "pattern": f"skip {tag} — zero engagement across all actions",
+            "confidence": 0.8,
+            "evidence": f"Tag '{tag}' has 0 total engagement events in log.",
+            "discovered": "2026-02-24T00:00:00+00:00",
+        }
 
     def test_keeps_article_with_no_skip_tags(self, reaction_engine: ReactionEngine) -> None:
         """Articles with non-skip-listed tags are kept."""
-        reaction_engine.learner.should_skip_tag = MagicMock(return_value=False)
+        reaction_engine.learner.load_learnings = MagicMock(return_value=[])
         candidates = [make_article("1", ["python", "ai"])]
         result = reaction_engine.filter_learner_candidates(candidates)
         assert result == candidates
@@ -221,7 +232,10 @@ class TestReactionEngineFilterLearner:
         self, reaction_engine: ReactionEngine
     ) -> None:
         """Articles where ALL tags are skip-listed are dropped."""
-        reaction_engine.learner.should_skip_tag = MagicMock(return_value=True)
+        reaction_engine.learner.load_learnings = MagicMock(return_value=[
+            self._skip_learning("rust"),
+            self._skip_learning("go"),
+        ])
         candidates = [make_article("1", ["rust", "go"])]
         result = reaction_engine.filter_learner_candidates(candidates)
         assert result == []
@@ -230,16 +244,19 @@ class TestReactionEngineFilterLearner:
         self, reaction_engine: ReactionEngine
     ) -> None:
         """Articles with at least one non-skip tag are kept."""
-        reaction_engine.learner.should_skip_tag = MagicMock(
-            side_effect=lambda tag: tag == "rust"
-        )
+        # Only rust is skip-listed; python is clean
+        reaction_engine.learner.load_learnings = MagicMock(return_value=[
+            self._skip_learning("rust"),
+        ])
         candidates = [make_article("1", ["rust", "python"])]
         result = reaction_engine.filter_learner_candidates(candidates)
         assert len(result) == 1
 
     def test_keeps_article_with_no_tags(self, reaction_engine: ReactionEngine) -> None:
         """Articles with no tags are always kept (no basis to filter)."""
-        reaction_engine.learner.should_skip_tag = MagicMock(return_value=True)
+        reaction_engine.learner.load_learnings = MagicMock(return_value=[
+            self._skip_learning("rust"),
+        ])
         article = {"id": "99", "title": "No tags", "tags": [], "author": {}}
         result = reaction_engine.filter_learner_candidates([article])
         assert result == [article]
@@ -247,8 +264,8 @@ class TestReactionEngineFilterLearner:
     def test_filter_is_non_fatal_on_per_article_learner_exception(
         self, reaction_engine: ReactionEngine
     ) -> None:
-        """filter_learner_candidates returns all candidates if per-article learner raises."""
-        reaction_engine.learner.should_skip_tag = MagicMock(side_effect=RuntimeError("boom"))
+        """filter_learner_candidates returns all candidates if preload raises."""
+        reaction_engine.learner.load_learnings = MagicMock(side_effect=RuntimeError("boom"))
         candidates = [make_article("1", ["python"])]
         result = reaction_engine.filter_learner_candidates(candidates)
         assert result == candidates
@@ -365,10 +382,13 @@ class TestCommentEngineRunPostCycleAnalysis:
         """run_post_cycle_analysis() completes without error when engagement log is absent.
 
         All CURATED_TAGS are unseen (total=0) so they each get a skip learning.
-        The count equals the number of CURATED_TAGS known to the scout.
+        The assertion below intentionally couples to the live CURATED_TAGS size —
+        if scout.CURATED_TAGS grows or shrinks, update the expected count here.
+        This verifies end-to-end integration behavior, not just that the call
+        completes.
         """
         from hashnode.scout import CURATED_TAGS
 
         count = comment_engine.run_post_cycle_analysis()
-        # All unseen tags get skip learnings on first run
+        # All unseen tags get skip learnings on the very first run
         assert count == len(CURATED_TAGS)

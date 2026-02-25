@@ -21,7 +21,7 @@ from hashnode.client import HashnodeClient, HashnodeError
 from hashnode.config import HashnodeConfig, load_config
 from hashnode.learner import GrowthLearner
 from hashnode.scout import ArticleScout
-from hashnode.storage import load_json_ids, save_json_ids
+from hashnode.storage import load_json_ids, save_json_ids, trim_jsonl
 
 logger = logging.getLogger(__name__)
 
@@ -73,13 +73,23 @@ class ReactionEngine:
     def filter_learner_candidates(self, candidates: list[dict]) -> list[dict]:
         """Filter out articles whose tags are marked skip by the learner.
 
-        Checks every tag slug on each article. If ALL tags are skip-listed,
-        the article is dropped. If any tag is not skip-listed, it stays.
-        Articles with no tags are kept (no basis to filter).
+        Preloads learnings once per call to avoid repeated disk reads (C×T
+        file reads per candidate×tag otherwise). Uses the loaded learnings
+        for all per-article tag checks via should_skip_tag().
+
+        If ALL tags on an article are skip-listed, the article is dropped.
+        Articles with at least one non-skip tag, or with no tags, are kept.
 
         All learner errors are caught — never crashes the main cycle.
         """
         try:
+            # Preload once — avoid repeated disk I/O per tag slug
+            try:
+                preloaded_learnings = self.learner.load_learnings()
+            except Exception as lerr:
+                logger.warning("Learner preload failed — skipping filter: %s", lerr)
+                return candidates
+
             filtered: list[dict] = []
             skipped_count = 0
             for article in candidates:
@@ -95,7 +105,8 @@ class ReactionEngine:
                 # Keep article if at least one tag is NOT skip-listed
                 try:
                     all_skipped = all(
-                        self.learner.should_skip_tag(slug) for slug in tag_slugs
+                        self._is_tag_skipped(slug, preloaded_learnings)
+                        for slug in tag_slugs
                     )
                 except Exception as lerr:
                     logger.warning("Learner tag check failed — keeping article: %s", lerr)
@@ -112,6 +123,18 @@ class ReactionEngine:
         except Exception as e:
             logger.warning("filter_learner_candidates failed — returning unfiltered: %s", e)
             return candidates
+
+    def _is_tag_skipped(self, tag: str, learnings: list[dict]) -> bool:
+        """Check if a tag slug is skip-listed using preloaded learnings.
+
+        In-memory check — avoids disk I/O. Mirrors GrowthLearner.should_skip_tag()
+        logic but operates on already-loaded data.
+        """
+        for learning in learnings:
+            pattern = learning.get("pattern", "").lower()
+            if tag.lower() in pattern and "skip" in pattern:
+                return learning.get("confidence", 0) >= 0.7
+        return False
 
     def log_engagement(self, action: str, article: dict, details: dict) -> None:
         """Append to engagement_log.jsonl — full audit trail."""
@@ -135,45 +158,8 @@ class ReactionEngine:
             f.write(json.dumps(entry) + "\n")
 
     def trim_engagement_log(self) -> None:
-        """Trim engagement log to max_engagement_log entries. Best-effort atomic write.
-
-        Never raises — filesystem errors are logged as warnings so the main
-        cycle can continue even if trimming fails.
-        """
-        import os
-        import tempfile
-
-        path = self.data_dir / "engagement_log.jsonl"
-        if not path.exists():
-            return
-        try:
-            lines = [line for line in path.read_text().strip().split("\n") if line.strip()]
-            if len(lines) <= self.config.max_engagement_log:
-                return
-            trimmed = lines[-self.config.max_engagement_log:]
-            content = "\n".join(trimmed) + "\n"
-            tmp_path: str | None = None
-            try:
-                fd, tmp_path = tempfile.mkstemp(
-                    dir=path.parent, suffix=".tmp", prefix=".engagement_",
-                )
-                with os.fdopen(fd, "w") as f:
-                    f.write(content)
-                os.replace(tmp_path, path)
-                tmp_path = None  # consumed by replace — no cleanup needed
-            except Exception:
-                if tmp_path is not None:
-                    try:
-                        os.unlink(tmp_path)
-                    except OSError:
-                        pass
-                raise
-            logger.info(
-                "Trimmed engagement log: %d -> %d entries.",
-                len(lines), len(trimmed),
-            )
-        except Exception as e:
-            logger.warning("trim_engagement_log failed — non-fatal: %s", e)
+        """Trim engagement log to max_engagement_log entries. Delegates to storage.trim_jsonl."""
+        trim_jsonl(self.data_dir / "engagement_log.jsonl", self.config.max_engagement_log)
 
     def run(self) -> dict:
         """Main entry point for cron. Finds articles, likes, logs.
