@@ -90,6 +90,23 @@ class HashnodeConfig(BaseSettings):
         description="Max post age in hours (fresh content only)",
     )
 
+    # --- A/B Testing (X3) ---
+    ab_test_enabled: bool = Field(
+        default=False,
+        description="Enable A/B testing for engagement actions",
+    )
+    current_ab_test: dict = Field(
+        default_factory=lambda: {
+            "name": "question_vs_statement",
+            "description": "Test question-based vs statement-based comments",
+            "control": "statement",
+            "variant": "question",
+            "metric": "follow_back_rate",
+            "min_samples_per_group": 50,
+        },
+        description="Declarative A/B test configuration",
+    )
+
     # --- Publishing ---
     max_articles_per_day: int = Field(default=3, ge=1, le=5)
     cover_style: str = Field(default="neon", description="Cover image style: neon, matrix, gradient")
