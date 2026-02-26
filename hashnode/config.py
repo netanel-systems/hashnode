@@ -12,6 +12,19 @@ from pydantic_settings import BaseSettings
 
 logger = logging.getLogger(__name__)
 
+# Niche clusters for scout targeting (H1).
+# Primary clusters: our core expertise. Secondary: adjacent topics we engage with.
+NICHE_CLUSTERS_PRIMARY: list[str] = [
+    "ai", "llm", "gpt", "machine-learning", "deep-learning",
+    "python", "ai-agents", "langchain", "rag", "claude",
+    "automation", "devops", "docker", "kubernetes", "ci-cd",
+]
+NICHE_CLUSTERS_SECONDARY: list[str] = [
+    "javascript", "typescript", "react", "nextjs", "nodejs",
+    "open-source", "startup", "indie-hacker", "saas", "career",
+    "web-development", "api", "graphql", "cloud", "data-science",
+]
+
 
 class HashnodeConfig(BaseSettings):
     """Central configuration for Hashnode Growth Engine.
@@ -57,6 +70,20 @@ class HashnodeConfig(BaseSettings):
     min_reactions_to_comment: int = Field(
         default=3, ge=0, le=100,
         description="Minimum reactions on article before we comment (quality filter)",
+    )
+
+    # --- Scout Targeting (H1) ---
+    max_target_followers: int = Field(
+        default=500, ge=10, le=5000,
+        description="Max follower count for target authors (prefer smaller accounts)",
+    )
+    max_target_reactions: int = Field(
+        default=5, ge=0, le=50,
+        description="Max reaction count on post (under-engaged posts only)",
+    )
+    max_post_age_hours: int = Field(
+        default=48, ge=1, le=168,
+        description="Max post age in hours (fresh content only)",
     )
 
     # --- Publishing ---

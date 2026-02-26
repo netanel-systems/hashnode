@@ -210,6 +210,7 @@ class HashnodeClient:
                             id
                             username
                             name
+                            followersCount
                         }
                         coverImage {
                             url

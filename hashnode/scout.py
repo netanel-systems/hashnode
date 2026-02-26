@@ -11,9 +11,14 @@ relevant tag slugs. Randomly sample 10 per cycle for diversity.
 
 import logging
 import random
+from datetime import datetime, timezone
 
 from hashnode.client import HashnodeClient, HashnodeError
-from hashnode.config import HashnodeConfig
+from hashnode.config import (
+    NICHE_CLUSTERS_PRIMARY,
+    NICHE_CLUSTERS_SECONDARY,
+    HashnodeConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +171,142 @@ class ArticleScout:
             a for a in articles
             if a.get("reactionCount", 0) >= min_reactions
         ]
+
+    def filter_by_target_profile(self, articles: list[dict]) -> list[dict]:
+        """Filter articles by target author profile and post metrics (H1).
+
+        Keeps articles where:
+        - Author has fewer than max_target_followers followers
+        - Post has fewer than max_target_reactions reactions
+        - Post is younger than max_post_age_hours
+
+        Articles missing author data pass through (defensive — do not drop
+        articles just because the API did not return follower count).
+        """
+        max_followers = self.config.max_target_followers
+        max_reactions = self.config.max_target_reactions
+        max_age_hours = self.config.max_post_age_hours
+        now = datetime.now(timezone.utc)
+
+        filtered: list[dict] = []
+        skipped_count = 0
+
+        for article in articles:
+            author = article.get("author", {})
+            followers = author.get("followersCount")
+            reactions = article.get("reactionCount", 0)
+
+            # Follower filter (skip if author has too many followers)
+            if followers is not None and followers > max_followers:
+                skipped_count += 1
+                continue
+
+            # Reaction filter (skip over-engaged posts)
+            if reactions > max_reactions:
+                skipped_count += 1
+                continue
+
+            # Post age filter
+            published_at = article.get("publishedAt", "")
+            if published_at:
+                try:
+                    pub_time = datetime.fromisoformat(
+                        published_at.replace("Z", "+00:00"),
+                    )
+                    age_hours = (now - pub_time).total_seconds() / 3600
+                    if age_hours > max_age_hours:
+                        skipped_count += 1
+                        continue
+                except (ValueError, TypeError):
+                    pass  # Malformed date — keep article
+
+            filtered.append(article)
+
+        if skipped_count:
+            logger.info(
+                "Target profile filter: %d articles removed (followers>%d, reactions>%d, age>%dh).",
+                skipped_count, max_followers, max_reactions, max_age_hours,
+            )
+        return filtered
+
+    def filter_by_niche(self, articles: list[dict]) -> list[dict]:
+        """Filter articles by niche keyword matching against tags (H1).
+
+        Keeps articles that have at least one tag matching our niche clusters.
+        Articles with no tags pass through (defensive).
+        """
+        all_niches = set(NICHE_CLUSTERS_PRIMARY + NICHE_CLUSTERS_SECONDARY)
+        filtered: list[dict] = []
+        skipped_count = 0
+
+        for article in articles:
+            tags = article.get("tags", [])
+            if not tags:
+                filtered.append(article)
+                continue
+
+            tag_slugs = {
+                (t.get("slug", "") if isinstance(t, dict) else str(t)).lower()
+                for t in tags
+                if t
+            }
+            if tag_slugs & all_niches:
+                filtered.append(article)
+            else:
+                skipped_count += 1
+
+        if skipped_count:
+            logger.info("Niche filter: %d articles removed (no matching tags).", skipped_count)
+        return filtered
+
+    def sort_by_priority(self, articles: list[dict]) -> list[dict]:
+        """Sort articles by engagement priority (H1).
+
+        Priority order:
+        1. Authors with < 100 followers (highest reciprocity chance)
+        2. Authors with 100-500 followers
+        3. Posts with primary niche tags ranked above secondary
+        4. Within same tier, newer posts first
+        """
+        primary_set = set(NICHE_CLUSTERS_PRIMARY)
+
+        def _priority_key(article: dict) -> tuple:
+            author = article.get("author", {})
+            followers = author.get("followersCount") or 999
+            # Tier: 0 = <100, 1 = 100-500, 2 = 500+
+            if followers < 100:
+                tier = 0
+            elif followers <= 500:
+                tier = 1
+            else:
+                tier = 2
+
+            # Niche score: 0 = primary match, 1 = secondary only, 2 = no match
+            tags = article.get("tags", [])
+            tag_slugs = {
+                (t.get("slug", "") if isinstance(t, dict) else str(t)).lower()
+                for t in tags
+                if t
+            }
+            if tag_slugs & primary_set:
+                niche_score = 0
+            elif tag_slugs:
+                niche_score = 1
+            else:
+                niche_score = 2
+
+            # Recency: negative timestamp for newest-first sort
+            published_at = article.get("publishedAt", "")
+            try:
+                pub_ts = datetime.fromisoformat(
+                    published_at.replace("Z", "+00:00"),
+                ).timestamp()
+            except (ValueError, TypeError):
+                pub_ts = 0.0
+
+            return (tier, niche_score, -pub_ts)
+
+        return sorted(articles, key=_priority_key)
 
     def _fetch_feed(self, feed_type: str, count: int) -> list[dict]:
         """Fetch articles from a specific feed type with tag sampling.
