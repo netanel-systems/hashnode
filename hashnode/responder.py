@@ -28,6 +28,7 @@ from pathlib import Path
 
 from hashnode.client import HashnodeClient, HashnodeError
 from hashnode.config import HashnodeConfig
+from hashnode.engagement_state import EngagementState
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,7 @@ class OwnPostResponder:
         self.config = config
         self.llm_reply_fn = llm_reply_fn
         self.data_dir: Path = config.abs_data_dir
+        self.engagement_state = EngagementState(config.abs_data_dir)
 
     # ── Storage ────────────────────────────────────────────────────────────
 
@@ -410,6 +412,18 @@ class OwnPostResponder:
                     "Processing comment %s on post '%s' by @%s",
                     comment_id, post_title[:50], commenter_username,
                 )
+
+                # Track target reply in engagement state (H4)
+                # If this commenter is someone we previously engaged with,
+                # record their reply as a reciprocity signal.
+                if commenter_username:
+                    target_state = self.engagement_state.get_target_state(commenter_username)
+                    if target_state is not None:
+                        self.engagement_state.record_target_reply(commenter_username)
+                        logger.info(
+                            "Engagement state: recorded reply from target @%s",
+                            commenter_username,
+                        )
 
                 # Step 1: Like the comment
                 liked = self.like_comment(comment_id)

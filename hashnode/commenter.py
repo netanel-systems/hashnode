@@ -15,6 +15,7 @@ from pathlib import Path
 
 from hashnode.client import HashnodeClient, HashnodeError
 from hashnode.config import HashnodeConfig
+from hashnode.engagement_state import EngagementState
 from hashnode.learner import GrowthLearner
 from hashnode.schema import build_engagement_entry
 from hashnode.storage import load_json_ids, save_json_ids, trim_jsonl
@@ -37,6 +38,17 @@ class CommentEngine:
         self.config = config
         self.learner = GrowthLearner(config)
         self.data_dir = config.abs_data_dir
+        self.engagement_state = EngagementState(config.abs_data_dir)
+
+    def should_comment(self, author_username: str) -> bool:
+        """Check engagement state: should we comment on this author's post? (H4)
+
+        Returns True if we have liked first and target is not deprioritized.
+        Always returns True if author_username is empty (defensive).
+        """
+        if not author_username:
+            return True
+        return self.engagement_state.should_comment(author_username)
 
     def load_commented_ids(self) -> set[str]:
         """Load post IDs we already commented on."""
@@ -150,6 +162,10 @@ class CommentEngine:
                 comment_template_category=comment_template_category,
                 comment_has_question=_has_question,
             )
+
+            # Record comment in engagement state (H4)
+            if author:
+                self.engagement_state.record_comment(author)
 
             return result
 

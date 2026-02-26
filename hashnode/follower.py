@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 
 from hashnode.client import HashnodeClient, HashnodeError
 from hashnode.config import HashnodeConfig
+from hashnode.engagement_state import EngagementState
 from hashnode.schema import build_engagement_entry
 from hashnode.storage import load_json_ids, save_json_ids
 
@@ -26,6 +27,7 @@ class FollowEngine:
         self.client = client
         self.config = config
         self.data_dir = config.abs_data_dir
+        self.engagement_state = EngagementState(config.abs_data_dir)
 
     def load_followed_usernames(self) -> set[str]:
         """Load usernames we already followed."""
@@ -102,6 +104,8 @@ class FollowEngine:
                     followed_count += 1
                     new_follows.add(username)
                     self._log_follow(username, article)
+                    # Record follow in engagement state (H4)
+                    self.engagement_state.record_follow(username)
                     logger.info("Followed %s", username)
                 else:
                     # toggleFollowUser toggled OFF — we were already following
@@ -148,16 +152,22 @@ class FollowEngine:
         return summary
 
     def _should_follow(self, author: dict) -> bool:
-        """Quality check — should we follow this author?
+        """Quality check — should we follow this author? (H4)
 
-        Basic filter: skip empty profiles. Can be extended with
-        more sophisticated checks later.
+        Uses engagement state to enforce conditional follow:
+        only follow if the target has replied to our comment
+        (reciprocity signal). Falls back to True if engagement
+        state has no data for this author (backward compat).
         """
         username = author.get("username", "")
         if not username:
             return False
-        # All authors we engage with are worth following for reciprocity
-        return True
+        # Check engagement state for reciprocity signal (H4)
+        target_state = self.engagement_state.get_target_state(username)
+        if target_state is None:
+            # No engagement state yet — allow follow (backward compat)
+            return True
+        return self.engagement_state.should_follow(username)
 
     def _log_follow(
         self,

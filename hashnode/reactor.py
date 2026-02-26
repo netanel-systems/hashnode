@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 
 from hashnode.client import HashnodeClient, HashnodeError
 from hashnode.config import HashnodeConfig, load_config
+from hashnode.engagement_state import EngagementState
 from hashnode.learner import GrowthLearner
 from hashnode.schema import build_engagement_entry, generate_cycle_id
 from hashnode.scout import ArticleScout
@@ -55,6 +56,7 @@ class ReactionEngine:
         self.scout = ArticleScout(self.client, config)
         self.learner = GrowthLearner(config)
         self.data_dir = config.abs_data_dir
+        self.engagement_state = EngagementState(config.abs_data_dir)
 
     def load_reacted_ids(self) -> set[str]:
         """Load post IDs we already reacted to."""
@@ -257,6 +259,8 @@ class ReactionEngine:
                         author_engagement_count[author_username] = (
                             author_engagement_count.get(author_username, 0) + 1
                         )
+                        # Record like in engagement state (H4)
+                        self.engagement_state.record_like(author_username)
                     self.log_engagement("reaction", article, {
                         "likes_count": likes,
                     }, cycle_id=cycle_id)
