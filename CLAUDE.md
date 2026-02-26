@@ -42,3 +42,11 @@ config (pydantic-settings) | client (GraphQL) | scout (discover) | reactor (like
 ## Brand Voice
 
 Read `~/.nathan/knowledge/brand-voice.md` before every article. Declarative sentences, specific numbers, counter-intuitive hooks. External = secular. CTA: `Follow @klement_gunndu for more [topic] content. We're building in public.`
+
+---
+
+## Team Brain
+
+Brain: `~/.nathan/teams/hashnode/` (MEMORY, DOS, VIOLATIONS, REWARDS, UNKNOWNS, state.json, logs/)
+REWARDS: `~/.nathan/teams/hashnode/REWARDS.md` — read BEFORE every task. Success = +10, failure/redo = -100.
+Graphiti: read `["netanel-hashnode", "netanel-decisions", "netanel"]` | write `netanel-hashnode`
