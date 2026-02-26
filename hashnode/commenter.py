@@ -3,8 +3,8 @@
 Used by nathan-team comment cycles (3x daily). Nathan reads articles
 and writes the comments — this module handles posting and dedup.
 
-Comments are 1-2 sentences, specific to the article, natural.
-Pure API — addComment mutation, no browser needed.
+Comments are 2-4 sentences, specific to the article, content-aware.
+Template categories guide LLM generation. Pure API — addComment mutation.
 """
 
 import json
@@ -103,8 +103,17 @@ class CommentEngine:
         body: str,
         article_title: str = "",
         author: str = "",
+        comment_template_category: str | None = None,
     ) -> dict | None:
         """Post a comment and log it.
+
+        Args:
+            post_id: Hashnode post ID to comment on.
+            body: Comment text (2-4 sentences, max 600 chars).
+            article_title: Title of the article (for logging).
+            author: Author username (for logging).
+            comment_template_category: Template category used to guide LLM
+                generation (H3). Logged to engagement log for A/B testing.
 
         Returns result dict on success, None on failure.
         """
@@ -124,11 +133,23 @@ class CommentEngine:
                 post_id, author, body[:60],
             )
 
+            # Detect question for engagement log tagging
+            from hashnode.comment_templates import has_question
+            _has_question = has_question(body)
+
             # Log to comment history (for learner)
-            self._log_comment(post_id, body, article_title, author, result)
+            self._log_comment(
+                post_id, body, article_title, author, result,
+                comment_template_category=comment_template_category,
+                comment_has_question=_has_question,
+            )
 
             # Log to engagement log
-            self._log_engagement(post_id, body, article_title, author)
+            self._log_engagement(
+                post_id, body, article_title, author,
+                comment_template_category=comment_template_category,
+                comment_has_question=_has_question,
+            )
 
             return result
 
@@ -151,15 +172,15 @@ class CommentEngine:
             logger.warning("Empty comment rejected.")
             return False
 
-        # Must be short (1-2 sentences, roughly under 280 chars)
-        if len(body) > 280:
-            logger.warning("Comment too long (%d chars). Max 280.", len(body))
+        # Must be under 600 chars (H3: 2-4 sentences need more room)
+        if len(body) > 600:
+            logger.warning("Comment too long (%d chars). Max 600.", len(body))
             return False
 
-        # Must be 1-2 sentences
-        sentences = [s for s in re.split(r"[.!?]+", body) if s.strip()]
-        if not (1 <= len(sentences) <= 2):
-            logger.warning("Comment must be 1-2 sentences (found %d).", len(sentences))
+        # Must be 2-4 sentences (H3: content-aware comments are longer)
+        sentences = [s for s in re.split(r"(?<=[.!?])\s+", body) if s.strip()]
+        if not (2 <= len(sentences) <= 4):
+            logger.warning("Comment must be 2-4 sentences (found %d).", len(sentences))
             return False
 
         # Must not contain multiple paragraphs

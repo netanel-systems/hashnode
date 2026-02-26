@@ -133,6 +133,60 @@ class ArticleScout:
         """Fetch full article content for reading before commenting."""
         return self.client.get_post(post_id)
 
+    def get_article_summary(self, post_id: str) -> str:
+        """Extract a usable content summary for LLM comment generation (H3).
+
+        Fetches the full article and returns first 500 characters of body text
+        plus all headings. This gives the LLM enough context to write a
+        content-aware comment without processing the entire article.
+
+        Args:
+            post_id: Hashnode post ID.
+
+        Returns:
+            A summary string with headings and opening text. Empty string
+            on any error (defensive -- never crashes the comment cycle).
+        """
+        try:
+            post = self.client.get_post(post_id)
+            markdown = post.get("content", {}).get("markdown", "") or ""
+            if not markdown:
+                # Fall back to brief if no markdown content
+                return post.get("brief", "")[:500]
+
+            # Extract headings
+            import re
+            headings = re.findall(r"^#{1,3}\s+(.+)$", markdown, re.MULTILINE)
+            heading_text = " | ".join(headings[:10]) if headings else ""
+
+            # Extract first 500 chars of body (skip leading headings/blank lines)
+            lines = markdown.split("\n")
+            body_lines: list[str] = []
+            total_chars = 0
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith("#"):
+                    continue  # Skip headings (already extracted)
+                if not stripped:
+                    continue  # Skip blank lines
+                body_lines.append(stripped)
+                total_chars += len(stripped)
+                if total_chars >= 500:
+                    break
+
+            body_preview = " ".join(body_lines)[:500]
+
+            parts: list[str] = []
+            if heading_text:
+                parts.append(f"Headings: {heading_text}")
+            if body_preview:
+                parts.append(f"Content: {body_preview}")
+            return "\n".join(parts)
+
+        except Exception as e:
+            logger.warning("Failed to extract article summary for %s: %s", post_id, e)
+            return ""
+
     def filter_own_articles(self, articles: list[dict]) -> list[dict]:
         """Remove our own articles — don't engage with ourselves."""
         if not self.config.username:
