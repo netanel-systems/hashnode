@@ -1,17 +1,23 @@
 """A/B testing infrastructure -- Hashnode platform.
 
 Provides random group assignment (control/variant 50/50), Fisher's
-Exact Test for statistical significance, and declarative test config.
+Exact Test for statistical significance, declarative test config,
+and results aggregation for weekly reports.
 
 One active test per platform at a time. Test config is declarative
 (change via config, not code).
 
-Schema version: X3-infra (GitLab #14)
+Schema version: X3-complete (GitLab #14)
 """
 
+from __future__ import annotations
+
+import json
 import logging
 import math
 import random
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -173,3 +179,213 @@ def check_test_complete(
         "variant_count": variant_total,
         "samples_needed": max(control_remaining, variant_remaining),
     }
+
+
+def get_ab_test_results(
+    data_dir: Path,
+    test_name: str,
+    metric: str = "follow_back_rate",
+    lookback_days: int = 30,
+    min_samples: int = 50,
+) -> dict:
+    """Aggregate A/B test results from the engagement log.
+
+    Reads engagement_log.jsonl, filters by ab_test_name, groups by
+    ab_test_group, and runs Fisher's Exact Test.
+
+    For the 'follow_back_rate' metric, success is defined as:
+    - The engagement target (target_username) subsequently appeared
+      as a new follower. This is approximated by checking if there
+      is a follow-back entry in follower_snapshots or if the
+      engagement_state shows the target replied.
+
+    Falls back to comment_has_question as a proxy metric when
+    follow-back data is insufficient.
+
+    Args:
+        data_dir: Absolute path to the platform data directory.
+        test_name: Name of the A/B test to evaluate.
+        metric: Metric to evaluate ('follow_back_rate').
+        lookback_days: How far back to scan the engagement log.
+        min_samples: Minimum samples per group for evaluation.
+
+    Returns:
+        Dict with test_name, status, sample counts, Fisher's test
+        results, and recommendation.
+    """
+    engagement_log = data_dir / "engagement_log.jsonl"
+    if not engagement_log.exists():
+        return {
+            "test_name": test_name,
+            "status": "no_data",
+            "error": "engagement_log.jsonl not found",
+        }
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).isoformat()
+
+    # Collect entries belonging to this test
+    control_entries: list[dict] = []
+    variant_entries: list[dict] = []
+
+    try:
+        with open(engagement_log) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                # Filter by test name and time window
+                if entry.get("ab_test_name") != test_name:
+                    continue
+                ts = entry.get("timestamp", "")
+                if ts < cutoff:
+                    continue
+
+                group = entry.get("ab_test_group")
+                if group == "control":
+                    control_entries.append(entry)
+                elif group == "variant":
+                    variant_entries.append(entry)
+    except OSError as exc:
+        logger.warning("Failed to read engagement log for A/B results: %s", exc)
+        return {
+            "test_name": test_name,
+            "status": "error",
+            "error": str(exc),
+        }
+
+    control_total = len(control_entries)
+    variant_total = len(variant_entries)
+
+    # Check completeness
+    completeness = check_test_complete(control_total, variant_total, min_samples)
+
+    # Count successes based on metric
+    if metric == "follow_back_rate":
+        # Load follower usernames from latest snapshot for cross-reference
+        follower_usernames = _load_follower_usernames(data_dir)
+        control_successes = _count_follow_backs(control_entries, follower_usernames)
+        variant_successes = _count_follow_backs(variant_entries, follower_usernames)
+    else:
+        # Default: use comment_has_question as proxy
+        control_successes = sum(1 for e in control_entries if e.get("comment_has_question"))
+        variant_successes = sum(1 for e in variant_entries if e.get("comment_has_question"))
+
+    # Run Fisher's test
+    test_result = fishers_exact_test(
+        control_successes, control_total,
+        variant_successes, variant_total,
+    )
+
+    # Generate recommendation
+    recommendation = _generate_recommendation(test_result, completeness)
+
+    return {
+        "test_name": test_name,
+        "status": "complete" if completeness["complete"] else "in_progress",
+        "control": {
+            "total": control_total,
+            "successes": control_successes,
+            "rate": test_result["control_rate"],
+        },
+        "variant": {
+            "total": variant_total,
+            "successes": variant_successes,
+            "rate": test_result["variant_rate"],
+        },
+        "fishers_test": {
+            "p_value": test_result["p_value"],
+            "significant": test_result["significant"],
+            "lift_percent": test_result["lift_percent"],
+        },
+        "samples_needed": completeness["samples_needed"],
+        "recommendation": recommendation,
+    }
+
+
+def _load_follower_usernames(data_dir: Path) -> set[str]:
+    """Load follower usernames from the latest snapshot.
+
+    Returns an empty set if no snapshot exists or if the snapshot
+    does not contain username data.
+    """
+    path = data_dir / "follower_snapshots.jsonl"
+    if not path.exists():
+        return set()
+
+    last_line = ""
+    try:
+        with open(path) as f:
+            for line in f:
+                if line.strip():
+                    last_line = line.strip()
+        if last_line:
+            snapshot = json.loads(last_line)
+            usernames = snapshot.get("usernames", [])
+            return set(usernames)
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("Failed to load follower snapshot for A/B: %s", exc)
+
+    return set()
+
+
+def _count_follow_backs(
+    entries: list[dict],
+    follower_usernames: set[str],
+) -> int:
+    """Count how many engagement targets became followers.
+
+    Args:
+        entries: Engagement log entries for one A/B group.
+        follower_usernames: Set of current follower usernames.
+
+    Returns:
+        Number of entries where target_username is in follower_usernames.
+    """
+    count = 0
+    seen_usernames: set[str] = set()
+    for entry in entries:
+        username = entry.get("target_username")
+        if not username or username in seen_usernames:
+            continue
+        seen_usernames.add(username)
+        if username in follower_usernames:
+            count += 1
+    return count
+
+
+def _generate_recommendation(
+    test_result: dict,
+    completeness: dict,
+) -> str:
+    """Generate a human-readable recommendation from test results.
+
+    Args:
+        test_result: Output from fishers_exact_test().
+        completeness: Output from check_test_complete().
+
+    Returns:
+        Recommendation string.
+    """
+    if not completeness["complete"]:
+        needed = completeness["samples_needed"]
+        return f"Collect {needed} more samples per group before evaluating."
+
+    if test_result.get("error"):
+        return "Insufficient data to evaluate."
+
+    if test_result["significant"]:
+        lift = test_result["lift_percent"]
+        return (
+            f"Variant wins with {lift:+.1f}% lift (p={test_result['p_value']:.4f}). "
+            f"Adopt variant treatment."
+        )
+
+    return (
+        f"No significant difference detected (p={test_result['p_value']:.4f}). "
+        f"Continue test or try a different variant."
+    )

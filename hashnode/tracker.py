@@ -13,6 +13,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
+from hashnode.ab_testing import get_ab_test_results
 from hashnode.attribution import calculate_fbr
 from hashnode.client import HashnodeClient, HashnodeError
 from hashnode.config import HashnodeConfig
@@ -224,6 +225,21 @@ class GrowthTracker:
 
         engagement_stats = self._compute_engagement_stats()
 
+        # X3-complete: A/B test results
+        ab_test_data: dict = {}
+        if self.config.ab_test_enabled:
+            try:
+                test_config = self.config.current_ab_test
+                ab_test_data = get_ab_test_results(
+                    data_dir=self.data_dir,
+                    test_name=test_config.get("name", ""),
+                    metric=test_config.get("metric", "follow_back_rate"),
+                    min_samples=test_config.get("min_samples_per_group", 50),
+                )
+            except Exception as e:
+                logger.warning("A/B test results failed: %s", e)
+                ab_test_data = {"status": "error", "error": str(e)}
+
         report = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "followers": follower_data,
@@ -231,6 +247,7 @@ class GrowthTracker:
             "engagement": learner_summary,
             "fbr": fbr_data,
             "engagement_stats": engagement_stats,
+            "ab_test": ab_test_data,
         }
 
         # Save report

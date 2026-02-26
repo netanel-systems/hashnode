@@ -13,6 +13,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+from hashnode.ab_testing import assign_group
 from hashnode.client import HashnodeClient, HashnodeError
 from hashnode.config import HashnodeConfig
 from hashnode.engagement_state import EngagementState
@@ -137,6 +138,13 @@ class CommentEngine:
             )
             return None
 
+        # X3: Assign A/B test group if testing is enabled
+        ab_group: str | None = None
+        ab_name: str | None = None
+        if self.config.ab_test_enabled:
+            ab_group = assign_group()
+            ab_name = self.config.current_ab_test.get("name")
+
         try:
             result = self.client.add_comment(post_id, body)
 
@@ -161,6 +169,8 @@ class CommentEngine:
                 post_id, body, article_title, author,
                 comment_template_category=comment_template_category,
                 comment_has_question=_has_question,
+                ab_test_group=ab_group,
+                ab_test_name=ab_name,
             )
 
             # Record comment in engagement state (H4)
@@ -263,6 +273,8 @@ class CommentEngine:
         cycle_id: str | None = None,
         comment_template_category: str | None = None,
         comment_has_question: bool | None = None,
+        ab_test_group: str | None = None,
+        ab_test_name: str | None = None,
     ) -> None:
         """Append to shared engagement_log.jsonl with enhanced X1 schema."""
         path = self.data_dir / "engagement_log.jsonl"
@@ -278,6 +290,8 @@ class CommentEngine:
             comment_template_category=comment_template_category,
             comment_has_question=comment_has_question,
             cycle_id=cycle_id,
+            ab_test_group=ab_test_group,
+            ab_test_name=ab_test_name,
             # Existing fields preserved
             post_id=post_id,
             title=article_title[:100],

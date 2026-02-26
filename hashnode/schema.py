@@ -47,6 +47,8 @@ def build_engagement_entry(
     comment_template_category: str | None = None,
     comment_has_question: bool | None = None,
     cycle_id: str | None = None,
+    ab_test_group: str | None = None,
+    ab_test_name: str | None = None,
     **extras: object,
 ) -> dict:
     """Build a canonical engagement log entry with enhanced schema fields.
@@ -89,6 +91,8 @@ def build_engagement_entry(
         "comment_template_category": comment_template_category,
         "comment_has_question": comment_has_question,
         "cycle_id": cycle_id,
+        "ab_test_group": ab_test_group,
+        "ab_test_name": ab_test_name,
     }
     # Merge platform-specific extras (existing fields like post_id, title, etc.)
     entry.update(extras)
