@@ -16,6 +16,7 @@ from pathlib import Path
 from hashnode.client import HashnodeClient, HashnodeError
 from hashnode.config import HashnodeConfig
 from hashnode.learner import GrowthLearner
+from hashnode.schema import build_engagement_entry
 from hashnode.storage import load_json_ids, save_json_ids, trim_jsonl
 
 logger = logging.getLogger(__name__)
@@ -195,6 +196,8 @@ class CommentEngine:
         article_title: str,
         author: str,
         api_result: dict,
+        comment_template_category: str | None = None,
+        comment_has_question: bool | None = None,
     ) -> None:
         """Log comment details for performance tracking by learner."""
         path = self.data_dir / "comment_history.jsonl"
@@ -208,6 +211,8 @@ class CommentEngine:
             "comment_text": body,
             "comment_id": comment.get("id", ""),
             "char_count": len(body),
+            "comment_template_category": comment_template_category,
+            "comment_has_question": comment_has_question,
         }
         with open(path, "a") as f:
             f.write(json.dumps(entry) + "\n")
@@ -218,18 +223,30 @@ class CommentEngine:
         body: str,
         article_title: str,
         author: str,
+        cycle_id: str | None = None,
+        comment_template_category: str | None = None,
+        comment_has_question: bool | None = None,
     ) -> None:
-        """Append to shared engagement_log.jsonl."""
+        """Append to shared engagement_log.jsonl with enhanced X1 schema."""
         path = self.data_dir / "engagement_log.jsonl"
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        entry = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "action": "comment",
-            "post_id": post_id,
-            "title": article_title[:100],
-            "author": author,
-            "comment_length": len(body),
-        }
+        entry = build_engagement_entry(
+            action="comment",
+            platform="hashnode",
+            target_username=author,
+            target_post_id=post_id,
+            target_followers_at_engagement=None,  # Populated when scout targeting ships
+            target_post_reactions_at_engagement=None,
+            target_post_age_hours=None,
+            comment_template_category=comment_template_category,
+            comment_has_question=comment_has_question,
+            cycle_id=cycle_id,
+            # Existing fields preserved
+            post_id=post_id,
+            title=article_title[:100],
+            author_username=author,
+            comment_length=len(body),
+        )
         with open(path, "a") as f:
             f.write(json.dumps(entry) + "\n")
         self._trim_engagement_log()

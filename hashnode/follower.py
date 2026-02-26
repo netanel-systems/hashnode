@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 
 from hashnode.client import HashnodeClient, HashnodeError
 from hashnode.config import HashnodeConfig
+from hashnode.schema import build_engagement_entry
 from hashnode.storage import load_json_ids, save_json_ids
 
 logger = logging.getLogger(__name__)
@@ -156,16 +157,29 @@ class FollowEngine:
         # All authors we engage with are worth following for reciprocity
         return True
 
-    def _log_follow(self, username: str, article: dict) -> None:
-        """Append to engagement_log.jsonl."""
+    def _log_follow(
+        self,
+        username: str,
+        article: dict,
+        cycle_id: str | None = None,
+    ) -> None:
+        """Append to engagement_log.jsonl with enhanced X1 schema."""
         path = self.data_dir / "engagement_log.jsonl"
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        entry = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "action": "follow",
-            "username": username,
-            "source_post_id": article.get("id", ""),
-            "source_title": (article.get("title") or "")[:100],
-        }
+        author = article.get("author", {})
+        entry = build_engagement_entry(
+            action="follow",
+            platform="hashnode",
+            target_username=username,
+            target_post_id=article.get("id", ""),
+            target_followers_at_engagement=author.get("followersCount"),
+            target_post_reactions_at_engagement=article.get("reactionCount"),
+            target_post_age_hours=None,
+            cycle_id=cycle_id,
+            # Existing fields preserved
+            username=username,
+            source_post_id=article.get("id", ""),
+            source_title=(article.get("title") or "")[:100],
+        )
         with open(path, "a") as f:
             f.write(json.dumps(entry) + "\n")

@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from hashnode.client import HashnodeClient, HashnodeError
 from hashnode.config import HashnodeConfig, load_config
 from hashnode.learner import GrowthLearner
+from hashnode.schema import build_engagement_entry, generate_cycle_id
 from hashnode.scout import ArticleScout
 from hashnode.storage import load_json_ids, save_json_ids, trim_jsonl
 
@@ -136,8 +137,17 @@ class ReactionEngine:
                 return learning.get("confidence", 0) >= 0.7
         return False
 
-    def log_engagement(self, action: str, article: dict, details: dict) -> None:
-        """Append to engagement_log.jsonl — full audit trail."""
+    def log_engagement(
+        self,
+        action: str,
+        article: dict,
+        details: dict,
+        cycle_id: str | None = None,
+    ) -> None:
+        """Append to engagement_log.jsonl — full audit trail.
+
+        Includes enhanced X1 schema fields for attribution and reporting.
+        """
         path = self.data_dir / "engagement_log.jsonl"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         tags = article.get("tags", [])
@@ -145,15 +155,23 @@ class ReactionEngine:
             t.get("slug", t.get("name", str(t))) if isinstance(t, dict) else str(t)
             for t in tags
         ]
-        entry = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "action": action,
-            "post_id": article.get("id", ""),
-            "title": (article.get("title") or "")[:100],
-            "author": article.get("author", {}).get("username", ""),
-            "tags": tag_names,
+        author = article.get("author", {})
+        entry = build_engagement_entry(
+            action=action,
+            platform="hashnode",
+            target_username=author.get("username", ""),
+            target_post_id=article.get("id", ""),
+            target_followers_at_engagement=author.get("followersCount"),
+            target_post_reactions_at_engagement=article.get("reactionCount"),
+            target_post_age_hours=None,  # Populated when scout targeting ships
+            cycle_id=cycle_id,
+            # Existing fields preserved
+            post_id=article.get("id", ""),
+            title=(article.get("title") or "")[:100],
+            author_username=author.get("username", ""),
+            tags=tag_names,
             **details,
-        }
+        )
         with open(path, "a") as f:
             f.write(json.dumps(entry) + "\n")
 
@@ -168,6 +186,7 @@ class ReactionEngine:
         """
         logger.info("=== Hashnode reaction cycle starting ===")
         start = time.time()
+        cycle_id = generate_cycle_id()
 
         try:
             reacted_ids = self.load_reacted_ids()
@@ -225,7 +244,7 @@ class ReactionEngine:
                     new_reacted.add(aid)
                     self.log_engagement("reaction", article, {
                         "likes_count": likes,
-                    })
+                    }, cycle_id=cycle_id)
                 except HashnodeError as e:
                     failed_count += 1
                     error_str = str(e).lower()
