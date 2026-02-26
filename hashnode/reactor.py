@@ -229,6 +229,9 @@ class ReactionEngine:
             skipped_count = 0
             failed_count = 0
             new_reacted: set[str] = set()
+            # Per-author engagement counter for this cycle (H2)
+            author_engagement_count: dict[str, int] = {}
+            max_per_author = self.config.max_engagements_per_author_per_cycle
 
             for idx, article in enumerate(candidates[:max_reactions]):
                 aid = article.get("id", "")
@@ -236,12 +239,24 @@ class ReactionEngine:
                     skipped_count += 1
                     continue
 
+                # Per-author cap check (H2)
+                author_username = article.get("author", {}).get("username", "")
+                if author_username:
+                    current_count = author_engagement_count.get(author_username, 0)
+                    if current_count >= max_per_author:
+                        skipped_count += 1
+                        continue
+
                 likes = pick_like_count()
 
                 try:
                     self.client.like_post(aid, likes_count=likes)
                     reacted_count += 1
                     new_reacted.add(aid)
+                    if author_username:
+                        author_engagement_count[author_username] = (
+                            author_engagement_count.get(author_username, 0) + 1
+                        )
                     self.log_engagement("reaction", article, {
                         "likes_count": likes,
                     }, cycle_id=cycle_id)
@@ -253,9 +268,10 @@ class ReactionEngine:
                         break
                     logger.warning("Like failed on %s: %s", aid, e)
 
-                # Delay between reactions for rate-limit safety
+                # Randomized delay between reactions (H2: +/-30%)
                 if idx < len(candidates[:max_reactions]) - 1:
-                    time.sleep(self.config.reaction_delay)
+                    delay = self.config.reaction_delay * random.uniform(0.7, 1.3)
+                    time.sleep(delay)
 
             # Save updated reacted IDs
             reacted_ids.update(new_reacted)

@@ -7,6 +7,7 @@ Uses toggleFollowUser mutation — idempotent but we track to avoid wasting call
 
 import json
 import logging
+import random
 import time
 from datetime import datetime, timezone
 
@@ -126,9 +127,10 @@ class FollowEngine:
                 failed_count += 1
                 logger.warning("Follow failed for %s: %s", username, e)
 
-            # Delay between follows
+            # Randomized delay between follows (H2: +/-30%)
             if followed_count < max_follows:
-                time.sleep(self.config.follow_delay)
+                delay = self.config.follow_delay * random.uniform(0.7, 1.3)
+                time.sleep(delay)
 
         # Save updated followed usernames
         followed_usernames.update(new_follows)

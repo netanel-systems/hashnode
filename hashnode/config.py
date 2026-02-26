@@ -51,21 +51,25 @@ class HashnodeConfig(BaseSettings):
     graphql_endpoint: str = "https://gql.hashnode.com/"
     request_timeout: int = Field(default=30, ge=5, le=120)
 
-    # --- Engagement ---
-    max_reactions_per_run: int = Field(default=25, ge=1, le=50)
-    max_comments_per_cycle: int = Field(default=5, ge=1, le=15)
-    max_follows_per_cycle: int = Field(default=5, ge=1, le=20)
+    # --- Engagement (H2: volume increase with safety guards) ---
+    max_reactions_per_run: int = Field(default=40, ge=1, le=50)
+    max_comments_per_cycle: int = Field(default=10, ge=1, le=15)
+    max_follows_per_cycle: int = Field(default=10, ge=1, le=20)
     reaction_delay: float = Field(
-        default=2.0, ge=0.5, le=10.0,
-        description="Seconds between reactions (rate limit safety)",
+        default=1.5, ge=0.5, le=10.0,
+        description="Base seconds between reactions (randomized +/-30%)",
     )
     comment_delay: float = Field(
-        default=3.0, ge=1.0, le=15.0,
-        description="Seconds between comments (rate limit safety)",
+        default=2.5, ge=1.0, le=15.0,
+        description="Base seconds between comments (randomized +/-30%)",
     )
     follow_delay: float = Field(
-        default=2.0, ge=0.5, le=10.0,
-        description="Seconds between follows",
+        default=1.5, ge=0.5, le=10.0,
+        description="Base seconds between follows (randomized +/-30%)",
+    )
+    max_engagements_per_author_per_cycle: int = Field(
+        default=2, ge=1, le=5,
+        description="Max engagement actions on a single author per cycle (anti-pattern guard)",
     )
     min_reactions_to_comment: int = Field(
         default=3, ge=0, le=100,
