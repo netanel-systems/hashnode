@@ -40,8 +40,12 @@ class GrowthTracker:
     def check_followers(self) -> dict:
         """Get current follower count and detect changes.
 
-        Uses me query for follower count.
-        Returns: {current_count, previous_count, delta}
+        Uses me query for follower count. Attempts to fetch follower
+        usernames via get_followers() for username-level attribution
+        (X1-snapshots). Falls back to count-only if schema does not
+        support the followers query.
+
+        Returns: {current_count, previous_count, delta, follower_usernames}
         """
         try:
             me = self.client.get_me()
@@ -53,16 +57,26 @@ class GrowthTracker:
                 "current_count": previous.get("count", 0),
                 "previous_count": previous.get("count", 0),
                 "delta": 0,
+                "follower_usernames": [],
                 "error": str(e),
             }
+
+        # Attempt to fetch follower usernames (X1-snapshots)
+        follower_usernames: list[str] = []
+        username = self.config.username
+        if username:
+            try:
+                follower_usernames = self.client.get_followers(username)
+            except Exception as e:
+                logger.warning("Follower username fetch failed (using count only): %s", e)
 
         # Load previous snapshot
         previous = self._load_last_snapshot()
         previous_count = previous.get("count", 0)
         delta = current_count - previous_count
 
-        # Save new snapshot
-        self._save_snapshot(current_count)
+        # Save new snapshot (with usernames if available)
+        self._save_snapshot(current_count, follower_usernames=follower_usernames)
 
         if delta > 0:
             logger.info(
@@ -81,6 +95,7 @@ class GrowthTracker:
             "current_count": current_count,
             "previous_count": previous_count,
             "delta": delta,
+            "follower_usernames": follower_usernames,
         }
 
     def get_reciprocity_rate(self) -> dict:
@@ -142,21 +157,34 @@ class GrowthTracker:
             logger.warning("Failed to load follower snapshot: %s", e)
         return {"count": 0}
 
-    def _save_snapshot(self, count: int, max_snapshots: int = 365) -> None:
+    def _save_snapshot(
+        self,
+        count: int,
+        max_snapshots: int = 365,
+        follower_usernames: list[str] | None = None,
+    ) -> None:
         """Append a new follower snapshot, bounded to max_snapshots entries.
 
         Keeps last max_snapshots entries to prevent unbounded growth.
         Default 365 = ~1 year of daily snapshots. Uses atomic write.
+
+        Args:
+            count: Current follower count.
+            max_snapshots: Max entries to keep.
+            follower_usernames: Optional list of follower usernames
+                (X1-snapshots). Included in snapshot when available.
         """
         import os
         import tempfile
 
         path = self.data_dir / "follower_snapshots.jsonl"
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        entry = {
+        entry: dict = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "count": count,
         }
+        if follower_usernames:
+            entry["usernames"] = sorted(follower_usernames)
 
         # Read existing entries
         lines: list[str] = []

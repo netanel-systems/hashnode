@@ -287,6 +287,72 @@ class HashnodeClient:
         data = self._graphql(query, {"host": host})
         return data.get("publication", {})
 
+    def get_followers(self, username: str, max_pages: int = 10) -> list[str]:
+        """Get follower usernames for a Hashnode user (X1-snapshots).
+
+        Attempts to query the followers connection on the User type.
+        Returns list of follower usernames, or empty list if the schema
+        does not support this query (graceful degradation).
+
+        Args:
+            username: Hashnode username to get followers for.
+            max_pages: Maximum pagination pages (each ~20 followers).
+
+        Returns:
+            List of follower username strings. Empty list on any error.
+        """
+        all_followers: list[str] = []
+        cursor: str | None = None
+
+        for _page in range(max_pages):
+            try:
+                query = """
+                query($username: String!, $first: Int!, $after: String) {
+                    user(username: $username) {
+                        followers(first: $first, after: $after) {
+                            nodes {
+                                username
+                            }
+                            pageInfo {
+                                hasNextPage
+                                endCursor
+                            }
+                        }
+                    }
+                }
+                """
+                variables: dict = {"username": username, "first": 20}
+                if cursor:
+                    variables["after"] = cursor
+
+                data = self._graphql(query, variables)
+                user = data.get("user", {})
+                if not user:
+                    break
+                followers_data = user.get("followers", {})
+                nodes = followers_data.get("nodes", [])
+                for node in nodes:
+                    uname = node.get("username", "")
+                    if uname:
+                        all_followers.append(uname)
+
+                page_info = followers_data.get("pageInfo", {})
+                if not page_info.get("hasNextPage", False):
+                    break
+                cursor = page_info.get("endCursor")
+                if not cursor:
+                    break
+
+            except HashnodeError as e:
+                # Schema may not support followers query -- graceful degradation
+                logger.warning(
+                    "get_followers() query failed (schema may not support it): %s", e,
+                )
+                return []
+
+        logger.info("Fetched %d follower usernames for %s.", len(all_followers), username)
+        return all_followers
+
     # --- Mutations ---
 
     def like_post(self, post_id: str, likes_count: int = 1) -> dict:
